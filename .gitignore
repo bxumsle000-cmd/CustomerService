@@ -1,0 +1,6 @@
+# Maven 編譯產物（.class、打包好的 jar 都在這底下）
+target/
+
+# IntelliJ IDEA 專案設定
+.idea/
+*.iml

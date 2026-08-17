@@ -1,0 +1,135 @@
+# ============================================================================
+# 使用方法（都在專案根目錄執行，也就是這個檔案所在的位置）
+#
+# 【平常開發：app 在 IntelliJ 跑】← 預設模式
+#   資料庫已設定成開機自動啟動（restart: unless-stopped），
+#   所以正常情況下你「什麼都不用做」，直接在 IDEA 按 Run 跑
+#   CustomerServiceApplication，然後開 http://localhost:8080 就好。
+#
+#   只有在資料庫真的沒起來時（例如剛裝好、或你手動 stop 過）才需要下這行：
+#     docker compose up -d
+#   它只會啟動 db，不會啟動 app（因為 app 掛了 profiles，見下方說明）。
+#
+# 【完整驗收：整套都跑在容器裡】
+#   要模擬正式環境、或想確認「換一台電腦也能跑」時用：
+#     docker compose --profile full up -d --build
+#   容器版的 app 開在 8081 埠（IDEA 版是 8080），兩邊不會打架，
+#   所以驗收時不用先把 IDEA 的 app 停掉。驗收網址：http://localhost:8081
+#   跑完記得關掉 app 容器：
+#     docker compose stop app
+#
+# 【第一次跑 / 換一台新電腦】
+#     docker compose up -d
+#   會依序做完：啟動 SQL Server → 等它 ready → 建立 customer_service 資料庫。
+#   然後在 IDEA 按 Run，Flyway 會自動建表。
+#
+# 【看 log / 除錯】
+#     docker compose logs -f app     # 只看 app（Flyway 的訊息在這裡）
+#     docker compose logs -f db      # 只看資料庫
+#     docker compose logs -f         # 全部
+#
+# 【暫時關掉，但保留資料】
+#     docker compose stop            # 之後用 docker compose start 開回來
+#     docker compose down            # 刪掉容器，但 volume（資料）留著
+#
+# 【整組砍掉重來，包含資料庫資料】※ 會清空所有工單與客服帳號
+#     docker compose down -v
+#     docker compose up -d
+#   然後在 IDEA 按 Run。這就是 Flyway 的驗收方式：
+#   資料全沒了，但 app 一啟動資料表就會自動長回來。
+#
+# 【用 SSMS 連進容器裡的資料庫看資料】
+#     伺服器名稱：localhost,14334
+#     驗證：SQL Server 驗證
+#     登入：sa
+#     密碼：見下方 MSSQL_SA_PASSWORD
+#   （用 14334，是為了同時避開本機安裝的 SQL Server（1433）
+#     以及 SlotMachineGame 專案的容器（14333），三者可以並存。）
+#
+# 【常見問題】
+#   - 第一次啟動較慢：要下載 SQL Server image（約 1.5GB）並編譯 Maven 專案。
+#   - app 顯示 unhealthy 或連不到 DB：先看 docker compose logs db，
+#     多半是 SA 密碼不符合複雜度要求（需大小寫 + 數字/符號，至少 8 碼）。
+#   - 埠號被占用：把下面 ports 的左邊數字改掉即可。
+# ============================================================================
+
+services:
+  # --------------------------------------------------------------------------
+  # 資料庫：SQL Server 2022
+  # --------------------------------------------------------------------------
+  db:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    # 容器名稱是「整台電腦共用」的，不分專案，所以一定要跟其他專案錯開。
+    container_name: cs-db
+    # 只要 Docker Desktop 一啟動，這個容器就自動跑起來，不用手動下指令。
+    # unless-stopped 的意思是「除非你自己手動 stop，否則都自動重啟」，
+    # 所以你哪天真的想關掉它（docker compose stop db），它會乖乖聽話不亂起來。
+    restart: unless-stopped
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: "Cs_Ticket_2648"
+      MSSQL_PID: "Developer"          # 開發用授權，免費
+    ports:
+      - "14334:1433"                  # 左邊是你電腦的埠號，右邊是容器內的
+    volumes:
+      - mssql-data:/var/opt/mssql     # 具名 volume，資料才不會隨容器消失
+    healthcheck:
+      # 讓 compose 知道「資料庫真的可以接受連線了」，不然 app 會太早啟動而連不上
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"$${MSSQL_SA_PASSWORD}\" -C -Q 'SELECT 1' || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  # --------------------------------------------------------------------------
+  # 建立資料庫：跑一次就結束的一次性容器
+  #
+  # 為什麼需要這個？因為 Flyway 建得了「資料表」，建不了「資料庫」本身；
+  # 而 SQL Server 的官方 image 不像 MySQL/Postgres 有環境變數可以自動建 DB，
+  # 所以要自己補這一步。
+  # --------------------------------------------------------------------------
+  db-init:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: cs-db-init
+    depends_on:
+      db:
+        condition: service_healthy    # 等 db 通過上面的 healthcheck 才開始
+    environment:
+      MSSQL_SA_PASSWORD: "Cs_Ticket_2648"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - >
+        /opt/mssql-tools18/bin/sqlcmd -S db -U sa -P "$${MSSQL_SA_PASSWORD}" -C
+        -Q "IF DB_ID('customer_service') IS NULL CREATE DATABASE customer_service;"
+    restart: "no"                     # 跑完就結束，不要重啟
+
+  # --------------------------------------------------------------------------
+  # 應用程式：用同目錄的 Dockerfile 編譯
+  # --------------------------------------------------------------------------
+  app:
+    build: .
+    container_name: cs-app
+    # 平常開發是在 IntelliJ 按 Run 跑 app，不用這個容器。
+    # profiles 的作用：有掛 profile 的服務，預設不會被 docker compose up 啟動，
+    # 必須明確指定才會跑。
+    #     docker compose up -d                    → 只起 db（平常開發用這個）
+    #     docker compose --profile full up -d     → 連 app 一起起（完整驗收用）
+    profiles: ["full"]
+    depends_on:
+      db-init:
+        condition: service_completed_successfully   # 等資料庫建好才啟動
+    environment:
+      # 注意主機名稱是 db，不是 localhost。
+      # 在 compose 建立的網路裡，服務名稱就是主機名稱；
+      # 容器內的 localhost 指的是容器自己，會連不到資料庫。
+      SPRING_DATASOURCE_URL: "jdbc:sqlserver://db:1433;databaseName=customer_service;encrypt=true;trustServerCertificate=true"
+      SPRING_DATASOURCE_USERNAME: "sa"
+      SPRING_DATASOURCE_PASSWORD: "Cs_Ticket_2648"
+    ports:
+      # 左邊 8081 是給容器版用的，避免跟 IDEA 直接跑的 8080 撞在一起。
+      - "8081:8080"
+
+volumes:
+  # 具名 volume 會自動加上專案名前綴（customerservice_mssql-data），
+  # 所以跟 SlotMachineGame 的同名 volume 不會混在一起，這裡不用改名。
+  mssql-data:

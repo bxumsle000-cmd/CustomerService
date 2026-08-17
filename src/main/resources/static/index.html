@@ -183,6 +183,25 @@
   .day-item .t{font-variant-numeric:tabular-nums;font-weight:600;font-size:13px;min-width:42px}
   .day-item .grow{flex:1;min-width:0;cursor:pointer}
   .day-item .grow:hover *{color:var(--accent)}
+
+  /* ---------- 客服狀態下拉選單 ---------- */
+  .stat-wrap{position:relative}
+  .stat-btn{display:flex;align-items:center;gap:10px;padding:4px 8px;border-radius:var(--r);border:.5px solid transparent;cursor:pointer;user-select:none}
+  .stat-btn:hover{background:var(--surface-2);border-color:var(--line)}
+  .stat-av{position:relative}
+  .stat-av .dotst{position:absolute;right:-1px;bottom:-1px;width:11px;height:11px;border-radius:50%;border:2px solid var(--surface)}
+  .stat-cur{font-size:12px;display:flex;align-items:center;gap:5px;justify-content:flex-end}
+  .stat-cur .d{width:7px;height:7px;border-radius:50%;flex:none}
+  .stat-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:50;min-width:186px;background:var(--surface);border:.5px solid var(--line);border-radius:var(--r-lg);box-shadow:0 6px 20px rgba(16,24,40,.14);padding:6px;display:none}
+  .stat-menu.on{display:block}
+  .stat-menu .mi{display:flex;align-items:center;gap:9px;padding:8px 10px;border-radius:6px;font-size:13.5px;cursor:pointer}
+  .stat-menu .mi:hover{background:var(--surface-2)}
+  .stat-menu .mi.dis{cursor:default;opacity:.45}
+  .stat-menu .mi.dis:hover{background:transparent}
+  .stat-menu .mi .d{width:8px;height:8px;border-radius:50%;flex:none}
+  .stat-menu .mi .ck{margin-left:auto;color:var(--accent);font-size:12px}
+  .stat-menu .lock{padding:7px 10px;font-size:12px;color:var(--faint);line-height:1.45}
+  .stat-menu .sep{border-top:.5px solid var(--line);margin:5px 2px}
   @media(max-width:820px){#app.on{grid-template-columns:1fr}.sidebar{display:none}.two{grid-template-columns:1fr}.cal-wrap{grid-template-columns:1fr}}
 </style>
 </head>
@@ -209,7 +228,7 @@
     </nav>
     <div class="side-foot">
       <div class="avatar">客</div>
-      <div><div style="font-size:13px;font-weight:500">CSC00001</div><div class="st"><span class="d"></span>可接聽</div></div>
+      <div><div style="font-size:13px;font-weight:500">CSC00001</div><div class="st" id="side-status"><span class="d"></span>線上</div></div>
     </div>
   </aside>
 
@@ -246,6 +265,18 @@ const TRANSITIONS = {
 };
 const PRI = {HIGH:'高',MEDIUM:'中',LOW:'低'};
 const CATS = ['帳號問題','付款/發票','課程內容','退款','其他'];
+
+/* 客服狀態：ON_CALL 由系統自動切換，不可手選 */
+const AGENT_STATUS = {
+  ONLINE  :{label:'線上',  c:'var(--green)'},
+  ON_CALL :{label:'通話中',c:'var(--accent)',auto:true},
+  BREAK   :{label:'休息',  c:'var(--amber)'},
+  RESTROOM:{label:'廁所',  c:'var(--amber)'},
+  LUNCH   :{label:'午休',  c:'var(--amber)'},
+  MEETING :{label:'簡報',  c:'var(--slate)'},
+};
+/* 可手動選擇的狀態（依選單顯示順序） */
+const PICKABLE_STATUS = ['ONLINE','BREAK','RESTROOM','LUNCH','MEETING'];
 
 let uid = 900;
 const now = Date.now();
@@ -325,6 +356,7 @@ for(let i=0;i<22;i++){
 
 /* =================== STATE =================== */
 let state={screen:'console',filter:'ALL',currentTicket:null,currentCustomer:null,activeCall:null,disposition:'RESOLVED',search:'',callReturn:'tickets',callHistPage:1,callDraft:{},newDisp:'IN_PROGRESS',cal:{y:null,m:null,sel:null},
+  agentStatus:'ONLINE',statusMenu:false,
   list:{tab:'ALL',fNo:'',fName:'',fPhone:'',fAssignee:ME,fTime:'ALL',pageSize:10,page:1}};
 let callTimer=null;
 
@@ -335,8 +367,65 @@ const fmt=t=>{const d=new Date(t);const p=n=>String(n).padStart(2,'0');const tod
 function badge(t){ const s=STATUS[t.status]; return `<span class="badge ${s.cls}">${s.label}</span>`; }
 function esc(s){return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))}
 
+/* =================== 客服狀態 =================== */
+/* 右上角頭像 + 狀態下拉選單；每次 renderTickets 都會重新產生 */
+function statusWidget(){
+  const s=AGENT_STATUS[state.agentStatus];
+  const locked=!!s.auto; /* 通話中 → 鎖住，不讓手動改 */
+  const items=PICKABLE_STATUS.map(k=>{
+    const o=AGENT_STATUS[k];
+    const on=k===state.agentStatus;
+    return `<div class="mi ${locked?'dis':''}" ${locked?'':`onclick="setAgentStatus('${k}')"`}>
+      <span class="d" style="background:${o.c}"></span>${o.label}${on?'<span class="ck">✓</span>':''}
+    </div>`;
+  }).join('');
+  return `<div class="stat-wrap" id="stat-wrap">
+    <div class="stat-btn" onclick="toggleStatusMenu(event)" title="${esc(ME_NAME)}・點擊調整客服狀態">
+      <div style="text-align:right;line-height:1.25">
+        <div style="font-weight:600;font-size:13px;font-variant-numeric:tabular-nums">${ME}</div>
+        <div class="stat-cur" style="color:${s.c}"><span class="d" style="background:${s.c}"></span>${esc(ME_NAME)}・${s.label}</div>
+      </div>
+      <div class="avatar stat-av">${esc(ME_NAME[0])}<span class="dotst" style="background:${s.c}"></span></div>
+      <span style="color:var(--faint);font-size:11px">▾</span>
+    </div>
+    <div class="stat-menu ${state.statusMenu?'on':''}" id="stat-menu">
+      ${locked?`<div class="lock">通話中，狀態由系統自動控制<br>結束通話後會自動回到「線上」</div><div class="sep"></div>`:''}
+      ${items}
+    </div>
+  </div>`;
+}
+/* 只換掉小工具本身，不整頁重繪（避免把篩選欄的游標弄丟） */
+function paintStatus(){
+  const w=$('#stat-wrap'); if(w) w.outerHTML=statusWidget();
+  const s=AGENT_STATUS[state.agentStatus], side=$('#side-status');
+  if(side){ side.style.color=s.c; side.innerHTML=`<span class="d" style="background:${s.c}"></span>${s.label}`; }
+}
+function toggleStatusMenu(e){
+  e.stopPropagation(); /* 不讓底下關閉選單的監聽器立刻又把它關掉 */
+  state.statusMenu=!state.statusMenu;
+  const m=$('#stat-menu'); if(m) m.classList.toggle('on',state.statusMenu);
+}
+function closeStatusMenu(){
+  if(!state.statusMenu)return;
+  state.statusMenu=false;
+  const m=$('#stat-menu'); if(m) m.classList.remove('on');
+}
+function setAgentStatus(k){
+  if(AGENT_STATUS[state.agentStatus].auto) return; /* 通話中不接受手動變更 */
+  state.agentStatus=k; state.statusMenu=false; paintStatus();
+}
+/* 通話開始／結束時由系統改狀態，可覆蓋 auto 狀態 */
+function setAgentStatusAuto(k){ state.agentStatus=k; state.statusMenu=false; paintStatus(); }
+/* 點別處或按 Esc 關閉選單（只註冊一次） */
+document.addEventListener('click',e=>{
+  const w=$('#stat-wrap');
+  if(w && w.contains(e.target)) return;
+  closeStatusMenu();
+});
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeStatusMenu(); });
+
 /* =================== LOGIN =================== */
-function doLogin(){ $('#login').style.display='none'; $('#app').classList.add('on'); go('tickets'); }
+function doLogin(){ $('#login').style.display='none'; $('#app').classList.add('on'); state.agentStatus='ONLINE'; state.statusMenu=false; go('tickets'); paintStatus(); }
 
 /* =================== ROUTER =================== */
 const TITLES={console:'工作台',dashboard:'總覽',tickets:'首頁',customers:'客戶',ticket:'工單詳情',newticket:'新增派件',customer:'客戶詳情',calendar:'行事曆'};
@@ -477,6 +566,7 @@ function simulateCall(){
   state.disposition='RESOLVED';
   state.callHistPage=1;
   state.callDraft={};
+  setAgentStatusAuto('ON_CALL'); /* 接聽 → 自動變成通話中 */
   $('#cb-name').textContent=phone;
   $('#cb-phone').textContent='來電進線 · 號碼未識別';
   $('#cb-hangup').style.display='';
@@ -487,6 +577,7 @@ function simulateCall(){
 }
 function endCall(fromCreate){
   clearInterval(callTimer);
+  setAgentStatusAuto('ONLINE'); /* 通話結束 → 自動變回線上 */
   if(fromCreate){ /* 按「建立工單並結束通話」才真正收掉整通並導向工單（createFromCall 負責 go） */
     state.activeCall=null; state.callDraft={};
     $('#callbar').classList.remove('on');
@@ -555,13 +646,7 @@ function renderTickets(v){
       </div>
       <div style="display:flex;align-items:center;gap:12px">
         <button class="btn" onclick="go('calendar')">📅 行事曆</button>
-        <div style="display:flex;align-items:center;gap:10px">
-          <div style="text-align:right;line-height:1.25">
-            <div style="font-weight:600;font-size:13px;font-variant-numeric:tabular-nums">${ME}</div>
-            <div style="font-size:12px;color:var(--muted)">${esc(ME_NAME)}</div>
-          </div>
-          <div class="avatar">${esc(ME_NAME[0])}</div>
-        </div>
+        ${statusWidget()}
       </div>
     </div>
 
