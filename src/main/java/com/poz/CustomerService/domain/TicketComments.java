@@ -11,7 +11,10 @@ import java.time.LocalDateTime;
 @Table(name="ticket_comments")
 public class TicketComments {
 
+// comment_id 在資料庫是 INT IDENTITY(1,1)，號碼由資料庫發，所以要加 @GeneratedValue。
+// 少了它，save() 時 Hibernate 會把 null 當成主鍵送進去，SQL Server 會拒絕。
 @Id
+@GeneratedValue(strategy = GenerationType.IDENTITY)
 @Column(name = "comment_id")
 Integer commentId ;
 

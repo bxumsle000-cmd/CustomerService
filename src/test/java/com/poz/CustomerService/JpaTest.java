@@ -34,7 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
  * 【想試自訂查詢】
  *   到 AgentsRepository 介面裡加一行方法簽章就好，不用寫實作，例如：
  *       List<Agents> findByStatus(String status);
- *       List<Agents> findByNameContaining(String 關鍵字);
+ *       List<Agents> findByNameContaining(String keyword);
  *   Spring Data 會自動照方法名稱幫你生 SQL。回來這裡就能呼叫。
  */
 @SpringBootTest
@@ -127,4 +127,65 @@ class JpaTest {
     @Autowired
     TicketCommentsRepository ticketCommentsRepository;
 
+    // 下面這些測試都靠 class 上的 @Transactional 自動回滾，
+    // 所以「先塞資料、再查出來看」可以重複跑，不會把 ticket_comments 愈跑愈髒。
+    //
+    // 注意：ticket_id 要填資料庫裡真的存在的工單（外鍵 FK_ticket_comments_tickets 會擋），
+    //       agent_id 同理要是真的客服代號，或乾脆填 null（系統事件）。
+    private static final Integer TEST_TICKET_ID = 4;           // tickets 表裡既有的那筆 TK-12345
+    private static final String  TEST_AGENT_ID  = "CSC00001";  // agents 表裡的林曉明
+
+    /** 新增一則留言。重點看印出來的 commentId —— 那是資料庫自動發的號碼。 */
+    @Test
+    void insertComment() {
+        TicketComments comment = new TicketComments();
+        comment.setTicketId(TEST_TICKET_ID);
+        comment.setAgentId(TEST_AGENT_ID);
+        comment.setContent("已致電客戶說明帳單明細，客戶表示理解。");
+        // createdAt 不用填，@PrePersist 會自動補現在時間
+
+        TicketComments saved = ticketCommentsRepository.save(comment);
+        System.out.println(saved);
+    }
+
+
+    /** 撈出某張工單的整串 timeline，由舊到新。 */
+    @Test
+    void findCommentsByTicket() {
+        // 先塞兩筆，這樣就算資料庫本來是空的也看得到東西
+        ticketCommentsRepository.save(newComment("第一則：客戶來電詢問"));
+        ticketCommentsRepository.save(newComment("第二則：已回覆客戶"));
+
+        ticketCommentsRepository.findByTicketIdOrderByCreatedAtAsc(TEST_TICKET_ID)
+                .forEach(System.out::println);
+    }
+
+    /** 算某張工單有幾則記錄。count 系列回傳 long，不用自己撈出來再算 size()。 */
+    @Test
+    void countCommentsByTicket() {
+        ticketCommentsRepository.save(newComment("測試用留言"));
+
+        long count = ticketCommentsRepository.countByTicketId(TEST_TICKET_ID);
+        System.out.println("工單 " + TEST_TICKET_ID + " 目前有 " + count + " 則記錄");
+    }
+
+    /** 查單筆 + 刪除。findById 回傳 Optional，沒查到不會是 null。 */
+    @Test
+    void findAndDeleteComment() {
+        Integer id = ticketCommentsRepository.save(newComment("等一下要被刪掉")).getCommentId();
+
+        ticketCommentsRepository.findById(id).ifPresent(System.out::println);
+
+        ticketCommentsRepository.deleteById(id);
+        System.out.println("刪除後還在嗎？" + ticketCommentsRepository.existsById(id));
+    }
+
+    /** 上面幾個測試共用的小工具，省得每次都寫三行。 */
+    private TicketComments newComment(String content) {
+        TicketComments comment = new TicketComments();
+        comment.setTicketId(TEST_TICKET_ID);
+        comment.setAgentId(TEST_AGENT_ID);
+        comment.setContent(content);
+        return comment;
+    }
 }
