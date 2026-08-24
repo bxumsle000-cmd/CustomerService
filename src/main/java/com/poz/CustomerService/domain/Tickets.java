@@ -5,6 +5,7 @@ import lombok.Data;
 
 import java.time.LocalDateTime;
 
+// 欄位命名規則同 Agents：Java 用 camelCase，資料庫欄位用 snake_case，靠 @Column 對接。
 @Data
 @Entity
 @Table(name = "tickets")
@@ -20,16 +21,16 @@ public class Tickets {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     @Column(name = "ticket_id")
-    private Integer ticket_id;
+    private Integer ticketId;
 
     @Column(name = "ticket_no")
-    private String ticket_no;
+    private String ticketNo;
 
     @Column(name = "customer_name")
-    private String customer_name;
+    private String customerName;
 
     @Column(name = "contact_phone")
-    private String contact_phone;
+    private String contactPhone;
 
     @Column(name = "title")
     private String title;
@@ -57,16 +58,16 @@ public class Tickets {
     // 這裡先用單純的字串欄位，不做 @ManyToOne 關聯：
     // 關聯物件會牽涉到 lazy loading、無限遞迴 toString 等議題，等需要時再改。
     @Column(name = "assignee_id")
-    private String assignee_id;
+    private String assigneeId;
 
     @Column(name = "follow_up_at")
-    private LocalDateTime follow_up_at;
+    private LocalDateTime followUpAt;
 
     @Column(name = "created_at")
-    private LocalDateTime created_at;
+    private LocalDateTime createdAt;
 
     @Column(name = "updated_at")
-    private LocalDateTime updated_at;
+    private LocalDateTime updatedAt;
 
     // @PrePersist：Hibernate 在「第一次 INSERT 之前」呼叫，用途跟 Agents 那支一樣——
     // SQL Server 的 DEFAULT 只在 INSERT 完全沒提到該欄位時才生效，
@@ -78,11 +79,14 @@ public class Tickets {
     @PrePersist
     void applyDefaults() {
         LocalDateTime now = LocalDateTime.now().withNano(0);
-        if (created_at == null) {
-            created_at = now;
+        if (createdAt == null) {
+            createdAt = now;
         }
-        if (updated_at == null) {
-            updated_at = now;
+        if (updatedAt == null) {
+            updatedAt = now;
+        }
+        if (status == null) {
+            status = "IN_PROGRESS";   // 新建工單一律是「處理中」
         }
     }
 
@@ -92,6 +96,6 @@ public class Tickets {
     // 所以改由這裡負責。
     @PreUpdate
     void touchUpdatedAt() {
-        updated_at = LocalDateTime.now().withNano(0);
+        updatedAt = LocalDateTime.now().withNano(0);
     }
 }

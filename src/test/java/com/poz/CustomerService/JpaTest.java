@@ -44,7 +44,6 @@ class JpaTest {
 
     @Autowired
     AgentsRepository agentsRepository;
-    TicketCommentsRepository ticketCommentsRepository;
 
 //==========================================================================
 // agentsRepository   Test
@@ -59,9 +58,9 @@ class JpaTest {
     @Commit
     void insert(){
         Agents agents = new Agents();
-        agents.setAgent_id("CSC004");
+        agents.setAgentId("CSC004");
         agents.setName("陳小美");
-        agents.setPassword_hash("pass");
+        agents.setPasswordHash("pass");
 
         Agents saveAgnets =   agentsRepository.save(agents);
         System.out.println(saveAgnets);
@@ -97,15 +96,15 @@ class JpaTest {
     @Test
     void insertTicket() {
         Tickets tickets = new Tickets();
-        tickets.setTicket_no("TK-12345");
-        tickets.setCustomer_name("陳小美");
-        tickets.setContact_phone("0973862551");
+        tickets.setTicketNo("TK-12345");
+        tickets.setCustomerName("陳小美");
+        tickets.setContactPhone("0973862551");
         tickets.setTitle("詢問帳單");
         tickets.setDescription("這次帳單異常高額，詢問原因");
         tickets.setStatus("RESOLVED");
         tickets.setCategory("帳單問題");
         tickets.setChannel("Phone");
-        tickets.setAssignee_id("CSC00001");
+        tickets.setAssigneeId("CSC00001");
 
         Tickets saveTickets = ticketsRepository.save(tickets);
         System.out.println(saveTickets);
@@ -117,7 +116,15 @@ class JpaTest {
     }
 
     @Test
-    void  findByName(){
-        ticketsRepository.findByName("陳小美").forEach(System.out::println);
+    void  findByCustomerName(){
+        ticketsRepository.findByCustomerName("陳小美").forEach(System.out::println);
     }
+
+//==========================================================================
+// TicketCommentsRepository   Test
+//==========================================================================
+
+    @Autowired
+    TicketCommentsRepository ticketCommentsRepository;
+
 }
