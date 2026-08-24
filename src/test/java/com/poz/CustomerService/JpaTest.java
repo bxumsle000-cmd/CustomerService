@@ -1,7 +1,11 @@
 package com.poz.CustomerService;
 
 import com.poz.CustomerService.Repository.AgentsRepository;
+import com.poz.CustomerService.Repository.TicketCommentsRepository;
+import com.poz.CustomerService.Repository.TicketsRepository;
 import com.poz.CustomerService.domain.Agents;
+import com.poz.CustomerService.domain.TicketComments;
+import com.poz.CustomerService.domain.Tickets;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -40,7 +44,11 @@ class JpaTest {
 
     @Autowired
     AgentsRepository agentsRepository;
+    TicketCommentsRepository ticketCommentsRepository;
 
+//==========================================================================
+// agentsRepository   Test
+//==========================================================================
     @Test
     void prac() {
         // ---- 以下隨便改 ----
@@ -78,5 +86,38 @@ class JpaTest {
     void findNameAndStatus(){
         agentsRepository.findAllByNameAndStatus("林曉明","ONLINE")
                 .forEach(System.out::println);
+    }
+
+//==========================================================================
+// TicketRepository   Test
+//==========================================================================
+    @Autowired
+    TicketsRepository ticketsRepository;
+
+    @Test
+    void insertTicket() {
+        Tickets tickets = new Tickets();
+        tickets.setTicket_no("TK-12345");
+        tickets.setCustomer_name("陳小美");
+        tickets.setContact_phone("0973862551");
+        tickets.setTitle("詢問帳單");
+        tickets.setDescription("這次帳單異常高額，詢問原因");
+        tickets.setStatus("RESOLVED");
+        tickets.setCategory("帳單問題");
+        tickets.setChannel("Phone");
+        tickets.setAssignee_id("CSC00001");
+
+        Tickets saveTickets = ticketsRepository.save(tickets);
+        System.out.println(saveTickets);
+    }
+
+    @Test
+    void findTicket_id(){
+        ticketsRepository.findById(4).ifPresent(System.out::println);
+    }
+
+    @Test
+    void  findByName(){
+        ticketsRepository.findByName("陳小美").forEach(System.out::println);
     }
 }

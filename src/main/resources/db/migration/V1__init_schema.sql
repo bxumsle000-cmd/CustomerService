@@ -127,7 +127,7 @@ GO
 CREATE TABLE [dbo].[ticket_comments](
     [comment_id] INT IDENTITY(1,1) NOT NULL,  -- 留言／紀錄流水號
     [ticket_id]  INT           NOT NULL,      -- 所屬工單
-    [author_id]  NVARCHAR(10)      NULL,      -- 留言的客服代號，系統事件為 NULL
+    [agent_id]  NVARCHAR(10)      NULL,      -- 留言的客服代號，系統事件為 NULL
     [content]    NVARCHAR(MAX) NOT NULL,      -- 留言內容或系統事件描述
     [created_at] DATETIME2(0)  NOT NULL,      -- 建立時間
     CONSTRAINT [PK_ticket_comments] PRIMARY KEY CLUSTERED ([comment_id] ASC)
@@ -148,7 +148,7 @@ GO
 
 -- 客服不可隨意刪除（留言要留著當稽核紀錄），所以這條不設 CASCADE
 ALTER TABLE [dbo].[ticket_comments] WITH CHECK ADD CONSTRAINT [FK_ticket_comments_agents]
-    FOREIGN KEY ([author_id]) REFERENCES [dbo].[agents] ([agent_id])
+    FOREIGN KEY ([agent_id]) REFERENCES [dbo].[agents] ([agent_id])
 GO
 ALTER TABLE [dbo].[ticket_comments] CHECK CONSTRAINT [FK_ticket_comments_agents]
 GO
