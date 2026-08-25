@@ -2,6 +2,7 @@ package com.poz.CustomerService.Repository;
 
 import com.poz.CustomerService.domain.Agents;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -12,4 +13,7 @@ public interface AgentsRepository extends JpaRepository<Agents,String> {
     List<Agents> findAllByName(String name);
 
     List<Agents> findAllByNameAndStatus(String name,String status);
+
+    @Query("SELECT a FROM Agents a WHERE a.status =?1 ")
+    List<Agents> findName(String status);
 }

@@ -69,6 +69,7 @@ public class Tickets {
     @Column(name = "updated_at")
     private LocalDateTime updatedAt;
 
+
     // @PrePersist：Hibernate 在「第一次 INSERT 之前」呼叫，用途跟 Agents 那支一樣——
     // SQL Server 的 DEFAULT 只在 INSERT 完全沒提到該欄位時才生效，
     // 但 Hibernate 會把所有映射欄位都列進 INSERT（等於明確送 NULL），

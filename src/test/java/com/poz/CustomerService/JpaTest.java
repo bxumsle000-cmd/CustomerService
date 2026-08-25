@@ -87,6 +87,10 @@ class JpaTest {
                 .forEach(System.out::println);
     }
 
+    @Test
+    void findAgentName(){
+        agentsRepository.findName("ONLINE").forEach(System.out::println);
+    }
 //==========================================================================
 // TicketRepository   Test
 //==========================================================================
@@ -119,6 +123,7 @@ class JpaTest {
     void  findByCustomerName(){
         ticketsRepository.findByCustomerName("陳小美").forEach(System.out::println);
     }
+
 
 //==========================================================================
 // TicketCommentsRepository   Test
