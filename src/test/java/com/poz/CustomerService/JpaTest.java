@@ -91,6 +91,13 @@ class JpaTest {
     void findAgentName(){
         agentsRepository.findName("ONLINE").forEach(System.out::println);
     }
+
+    @Test
+    @Commit
+    void reName(){
+        int updates = agentsRepository.updateName("OMG","CSC00001");
+        System.out.println(updates);
+    }
 //==========================================================================
 // TicketRepository   Test
 //==========================================================================
@@ -122,6 +129,12 @@ class JpaTest {
     @Test
     void  findByCustomerName(){
         ticketsRepository.findByCustomerName("陳小美").forEach(System.out::println);
+    }
+
+    @Test
+    void DeleteByticketId() {
+        int delete = ticketsRepository.deleteByticketId(4);
+        System.out.println(delete);
     }
 
 
