@@ -21,6 +21,12 @@ Integer commentId ;
 @Column(name = "ticket_id")
 Integer ticketId ;
 
+// 留言的客服代號，對應 agents.agent_id（FK_ticket_comments_agents）。
+// 可以是 null：代表這是「系統事件」（建單、狀態變更、轉派等由後端自動寫入的紀錄），
+// 畫面上顯示為「系統」。所以型別要用 String 而不是原始型別。
+//
+// 注意：這一欄原本叫 author_id，V1__init_schema.sql 已經改名為 agent_id。
+// 但對外的 JSON 仍沿用 authorId / authorName（見 docs/api.md），DTO 轉換時要對應。
 @Column(name = "agent_id")
 String agentId ;
 
