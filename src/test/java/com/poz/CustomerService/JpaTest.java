@@ -1,16 +1,15 @@
 package com.poz.CustomerService;
 
-import com.poz.CustomerService.Repository.AgentsRepository;
-import com.poz.CustomerService.Repository.TicketCommentsRepository;
-import com.poz.CustomerService.Repository.TicketsRepository;
-import com.poz.CustomerService.domain.Agents;
-import com.poz.CustomerService.domain.TicketComments;
-import com.poz.CustomerService.domain.Tickets;
+import com.poz.CustomerService.repository.AgentsRepository;
+import com.poz.CustomerService.repository.TicketCommentsRepository;
+import com.poz.CustomerService.repository.TicketsRepository;
+import com.poz.CustomerService.entity.Agents;
+import com.poz.CustomerService.entity.TicketComments;
+import com.poz.CustomerService.entity.Tickets;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.test.annotation.Commit;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -76,28 +75,6 @@ class JpaTest {
         agentsRepository.findAll(PageRequest.of(1,2)).forEach(System.out::println);
     }
 
-    @Test
-    void findName(){
-        agentsRepository.findAllByName("黃志豪").forEach(System.out::println);
-    }
-
-    @Test
-    void findNameAndStatus(){
-        agentsRepository.findAllByNameAndStatus("林曉明","ONLINE")
-                .forEach(System.out::println);
-    }
-
-    @Test
-    void findAgentName(){
-        agentsRepository.findName("ONLINE").forEach(System.out::println);
-    }
-
-    @Test
-    @Commit
-    void reName(){
-        int updates = agentsRepository.updateName("OMG","CSC00001");
-        System.out.println(updates);
-    }
 //==========================================================================
 // TicketRepository   Test
 //==========================================================================
@@ -124,17 +101,6 @@ class JpaTest {
     @Test
     void findTicket_id(){
         ticketsRepository.findById(4).ifPresent(System.out::println);
-    }
-
-    @Test
-    void  findByCustomerName(){
-        ticketsRepository.findByCustomerName("陳小美").forEach(System.out::println);
-    }
-
-    @Test
-    void DeleteByticketId() {
-        int delete = ticketsRepository.deleteByticketId(4);
-        System.out.println(delete);
     }
 
 
@@ -167,26 +133,6 @@ class JpaTest {
     }
 
 
-    /** 撈出某張工單的整串 timeline，由舊到新。 */
-    @Test
-    void findCommentsByTicket() {
-        // 先塞兩筆，這樣就算資料庫本來是空的也看得到東西
-        ticketCommentsRepository.save(newComment("第一則：客戶來電詢問"));
-        ticketCommentsRepository.save(newComment("第二則：已回覆客戶"));
-
-        ticketCommentsRepository.findByTicketIdOrderByCreatedAtAsc(TEST_TICKET_ID)
-                .forEach(System.out::println);
-    }
-
-    /** 算某張工單有幾則記錄。count 系列回傳 long，不用自己撈出來再算 size()。 */
-    @Test
-    void countCommentsByTicket() {
-        ticketCommentsRepository.save(newComment("測試用留言"));
-
-        long count = ticketCommentsRepository.countByTicketId(TEST_TICKET_ID);
-        System.out.println("工單 " + TEST_TICKET_ID + " 目前有 " + count + " 則記錄");
-    }
-
     /** 查單筆 + 刪除。findById 回傳 Optional，沒查到不會是 null。 */
     @Test
     void findAndDeleteComment() {
@@ -198,7 +144,7 @@ class JpaTest {
         System.out.println("刪除後還在嗎？" + ticketCommentsRepository.existsById(id));
     }
 
-    /** 上面幾個測試共用的小工具，省得每次都寫三行。 */
+    /** 上面測試共用的小工具，省得每次都寫三行。 */
     private TicketComments newComment(String content) {
         TicketComments comment = new TicketComments();
         comment.setTicketId(TEST_TICKET_ID);

@@ -1,4 +1,4 @@
-package com.poz.CustomerService.domain;
+package com.poz.CustomerService.entity;
 
 
 import jakarta.persistence.*;
@@ -37,6 +37,13 @@ public class Agents {
     @Column(name = "created_at")
     private LocalDateTime createdAt ;
 
+    // 最後更新時間，由 V3__refine_indexes_and_agent_updated_at.sql 補上。
+    // 客服狀態（ONLINE / LUNCH / ...）會一直變，原本改了卻查不到是何時改的。
+    // 跟 Tickets 一樣，SQL Server 沒有 ON UPDATE CURRENT_TIMESTAMP，
+    // 所以靠下面的 @PreUpdate 維護。
+    @Column(name = "updated_at")
+    private LocalDateTime updatedAt ;
+
     // @PrePersist：Hibernate 在「第一次 INSERT 這筆資料之前」會自動呼叫這個方法。
     // 為什麼需要它？因為 V1__init_schema.sql 裡 created_at / status 雖然有 DEFAULT，
     // 但 SQL Server 的 DEFAULT 只在「INSERT 語句完全沒提到該欄位」時才生效。
@@ -57,5 +64,19 @@ public class Agents {
         if (status == null) {
             status = "ONLINE";
         }
+        // updated_at 在資料庫是 NOT NULL。雖然 DF_agents_updated_at 有給預設值，
+        // 但那個 DEFAULT 只在 INSERT 完全沒提到該欄位時才生效，
+        // 而 Hibernate 會把所有映射欄位都列進 INSERT（等於明確送 NULL），
+        // 所以這裡一定要自己補，否則會撞上 NOT NULL。理由同 createdAt。
+        if (updatedAt == null) {
+            updatedAt = createdAt;   // 從未更新過時，updated_at 等於 created_at
+        }
+    }
+
+    // @PreUpdate：Hibernate 在 UPDATE 之前呼叫。
+    // 客服改狀態、改名字都會走到這裡，時間戳由這裡負責更新。
+    @PreUpdate
+    void touchUpdatedAt() {
+        updatedAt = LocalDateTime.now().withNano(0);
     }
 }

@@ -57,6 +57,13 @@
             <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
             <version>3.0.3</version>
         </dependency>
+        <!--   Bean Validation：DTO 上的 @NotBlank / @Size / @Pattern 等註解
+               光有註解不會生效，還要有實作（Hibernate Validator），這個 starter 兩者都帶。
+               Controller 的參數要加 @Valid 才會真的觸發檢查。   -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-validation</artifactId>
+        </dependency>
         <!--   密碼雜湊（BCrypt） -->
         <dependency>
             <groupId>org.springframework.security</groupId>
@@ -75,12 +82,27 @@
             <scope>provided</scope>
         </dependency>
     </dependencies>
-    <!--  spring-boot-maven-plugin  -->
     <build>
         <plugins>
+            <!--  spring-boot-maven-plugin  -->
             <plugin>
                 <groupId>org.springframework.boot</groupId>
                 <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+            <!--
+                maven-compiler-plugin：明確告訴編譯器要跑 Lombok 的註解處理器。
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </path>
+                    </annotationProcessorPaths>
+                </configuration>
             </plugin>
         </plugins>
     </build>

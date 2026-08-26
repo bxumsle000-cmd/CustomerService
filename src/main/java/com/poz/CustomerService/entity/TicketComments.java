@@ -1,4 +1,4 @@
-package com.poz.CustomerService.domain;
+package com.poz.CustomerService.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;

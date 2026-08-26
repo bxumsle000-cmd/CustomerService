@@ -9,6 +9,7 @@
 >
 > - `src/main/resources/db/migration/V1__init_schema.sql` — 建表、索引、約束
 > - `src/main/resources/db/migration/V2__seed_agents.sql` — 開發用客服帳號
+> - `src/main/resources/db/migration/V3__refine_indexes_and_agent_updated_at.sql` — 補 `agents.updated_at`、重整狀態查詢索引
 >
 > 兩者的差異對照（`AUTO_INCREMENT` → `IDENTITY`、`VARCHAR` → `NVARCHAR` 等）
 > 寫在 V1 檔案開頭的註解裡。
@@ -27,6 +28,7 @@ CREATE TABLE agents (
   password_hash VARCHAR(255) NOT NULL,      -- 登入密碼雜湊值（BCrypt，strength 10）
   status        VARCHAR(20)  NOT NULL DEFAULT 'ONLINE',  -- 目前工作狀態，見下表
   created_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- 帳號建立時間
+  updated_at    DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- 最後更新時間，由 JPA @PreUpdate 維護（V3 新增）
   CONSTRAINT CK_agents_status CHECK (
     status IN ('ONLINE','ON_CALL','BREAK','RESTROOM','LUNCH','MEETING')
   )
@@ -51,7 +53,9 @@ CREATE TABLE agents (
 
 - 登入後預設為 `ONLINE`。
 - `ON_CALL` 不允許由客服手動選擇，只能由通話事件觸發；同理，狀態為 `ON_CALL` 時也不接受手動變更，必須等通話結束。
-- 這裡只存「目前狀態」。若之後需要統計各狀態的累計時長（例如休息時間報表），要另外開一張 `agent_status_logs` 記錄每次狀態變更的時間點，本表無法回推歷史。
+- 這裡只存「目前狀態」＋`updated_at`（最後一次變更的時間點）。
+  能答出「這個人掛在午休狀態多久了」，但**答不出「他今天午休累計幾分鐘」**——
+  要做工時統計得另開一張 `agent_status_logs` 一列一列記錄每次變更，本表無法回推歷史。
 
 #### 種子資料
 
@@ -155,11 +159,28 @@ CREATE TABLE ticket_comments (
 
 | 索引 | 欄位 | 對應用途 |
 |---|---|---|
-| `IX_tickets_assignee_created` | `assignee_id`, `created_at DESC` | 首頁列表預設「我的工單、建立時間新到舊」，做成複合索引 |
-| `IX_tickets_status` | `status` | 列表上方四個狀態 tab 快篩 |
-| `IX_tickets_contact_phone` | `contact_phone` | 通話工作台依進線號碼查歷史紀錄 |
+| `IX_tickets_assignee_created` | `assignee_id`, `created_at DESC` | 首頁列表 tab=ALL：「我的工單、建立時間新到舊」 |
+| `IX_tickets_assignee_status_created` | `assignee_id`, `status`, `created_at DESC` | 首頁列表帶狀態 tab 時的主要查詢；前兩欄同時供 `tabCounts` 的 `GROUP BY status` 使用（V3 新增） |
+| `IX_tickets_contact_phone` | `contact_phone` | 通話工作台依進線號碼查歷史紀錄（等值比對） |
 | `IX_tickets_follow_up` | `assignee_id`, `follow_up_at` | 行事曆查某人某個月的跟進安排 |
 | `IX_ticket_comments_ticket` | `ticket_id`, `created_at ASC` | 工單詳情頁撈整串 timeline，依時間排序 |
+
+`IX_tickets_assignee_status_created` 的欄位順序是有講究的：`assignee_id` 等值比對、
+選擇性最高，放第一刀砍掉最多資料；`status` 同為等值比對，對應四個 tab；
+`created_at` 只用來排序放最後，寫 `DESC` 是為了讓 SQL Server 照索引順序直接讀出來，
+省掉一次 Sort。
+
+> V3 一併移除了原本的 `IX_tickets_status`（單欄 `status`）。
+> 理由是 status 只有三種值、選擇性太低，最佳化工具多半寧可掃全表也不走它，
+> 卻仍要在每次寫入時付出維護成本；而實際畫面上的列表一定會帶 `assignee_id`，
+> 那個情境已由上面的複合索引涵蓋。之後若真的出現跨客服的全域狀態查詢
+> （例如主管看板），再開 V4 加回來即可。
+
+`IX_tickets_contact_phone` 只在**等值或前綴**比對時有效。
+通話工作台拿進線號碼查歷史紀錄屬於等值比對，吃得到；
+但列表篩選欄的電話「模糊查」若實作成 `LIKE '%0912%'`，前面帶萬用字元
+就無法利用索引的排序結構做二分搜尋，這條索引會派不上用場。
+那是模糊查本身的限制，不是索引沒用。`ticket_no` / `customer_name` 的模糊查同理。
 
 `IX_tickets_follow_up` 刻意**不**用篩選索引（`WHERE follow_up_at IS NOT NULL`）。
 篩選索引雖然省空間，但 SQL Server 規定：資料表只要有篩選索引，
