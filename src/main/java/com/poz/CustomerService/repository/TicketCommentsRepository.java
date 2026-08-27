@@ -19,19 +19,10 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface TicketCommentsRepository extends JpaRepository<TicketComments, Integer> {
 
-    // ----------------------------------------------------------------
-    // TODO 工單詳情的 timeline 需要「某張工單底下的所有留言，由舊到新」。
-    //      就是上面 Javadoc 寫的那一行，照抄即可：
+    // TODO 工單詳情的 timeline 要「某張工單底下的所有留言，由舊到新」，
+    //      這裡缺一支方法。上面 Javadoc 已經有寫法，照著加即可。
     //
-    //   List<TicketComments> findByTicketIdOrderByCreatedAtAsc(Integer ticketId);
-    //
-    // 拆開來看方法名是怎麼變成 SQL 的：
-    //   findBy + TicketId          →  WHERE ticket_id = ?
-    //   OrderBy + CreatedAt + Asc  →  ORDER BY created_at ASC
-    //
-    // 參數是「內部流水號 ticketId」不是 ticketNo——FK 接的是 ticket_id。
-    //
-    // 記得 import java.util.List;
-    // ----------------------------------------------------------------
+    // 加之前先確認一件事：參數要傳工單的哪一個欄位？
+    // 去看 V1__init_schema.sql 裡 ticket_comments 的 FK 接的是哪一欄。
 
 }

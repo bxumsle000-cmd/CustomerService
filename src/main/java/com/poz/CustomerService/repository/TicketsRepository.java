@@ -17,20 +17,13 @@ import org.springframework.stereotype.Repository;
 @Repository
 public interface TicketsRepository extends JpaRepository<Tickets, Integer> {
 
-    // ----------------------------------------------------------------
-    // TODO 工單詳情需要「用對外編號 ticket_no 查一張工單」。
+    // TODO 工單詳情要「用對外編號 ticket_no 查一張工單」，這裡缺一支方法。
     //
-    //   Optional<Tickets> findByTicketNo(String ticketNo);
+    // 不用寫實作，Spring Data 會照方法名稱自動生 SQL——
+    // 方法名要怎麼取才會變成 WHERE ticket_no = ?，去看 TicketCommentsRepository
+    // 的 Javadoc 有個現成範例，規則是一樣的。
     //
-    // 只要宣告，不用寫實作——Spring Data 會照方法名稱自動生 SQL：
-    //   findBy + TicketNo  →  WHERE ticket_no = ?
-    // 這就是為什麼 entity 的屬性名不能有底線（見 Agents 的說明）。
-    //
-    // 回傳型別用 Optional 而不是 Tickets：查不到時是回一個空的 Optional，
-    // 呼叫端用 .orElseThrow(...) 接，就不會有人忘記檢查 null。
-    // 寫法可以參考 AgentService.findAgentOrThrow()。
-    //
-    // 記得 import java.util.Optional;
-    // ----------------------------------------------------------------
+    // 回傳型別想一下：查不到的時候要回什麼，才不會有人忘記檢查？
+    // AgentService.findAgentOrThrow() 接的是哪一種型別，照著挑就對了。
 
 }

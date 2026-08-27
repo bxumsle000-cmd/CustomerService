@@ -62,20 +62,20 @@ public class Tickets {
     private String ticketNo;
 
     /**
-     * 通話中向客戶確認的姓名。{@code tickets.customer_name}，NVARCHAR(50)，<b>可為 null</b>。
+     * 通話中向客戶確認的姓名。{@code tickets.customer_name}，NVARCHAR(255)，<b>可為 null</b>。
      */
     @Column(name = "customer_name")
     private String customerName;
 
     /**
      * 客戶提供的聯絡電話，用來查歷史紀錄。
-     * {@code tickets.contact_phone}，NVARCHAR(30)，<b>可為 null</b>。
+     * {@code tickets.contact_phone}，NVARCHAR(50)，<b>可為 null</b>。
      */
     @Column(name = "contact_phone")
     private String contactPhone;
 
     /**
-     * 工單主旨。{@code tickets.title}，NVARCHAR(200)、NOT NULL。
+     * 工單主旨。{@code tickets.title}，NVARCHAR(50)、NOT NULL。
      */
     @Column(name = "title")
     private String title;
@@ -97,13 +97,14 @@ public class Tickets {
 
     /**
      * 問題分類，例如「帳號問題」「付款、發票」。
-     * {@code tickets.category}，NVARCHAR(30)、NOT NULL。
+     * {@code tickets.category}，NVARCHAR(255)、NOT NULL。
      */
     @Column(name = "category")
     private String category;
 
     /**
-     * 進線管道，只能是 {@code PHONE} 或 {@code EMAIL}（CK_tickets_channel 把關）。
+     * 派單來源，只能是 {@code PHONE}（通話工作台在通話中建立）或
+     * {@code Agent}（客服從「＋ 新增派件」手動建立），由 CK_tickets_channel 把關。
      * {@code tickets.channel}，NVARCHAR(10)、NOT NULL。
      */
     @Column(name = "channel")
