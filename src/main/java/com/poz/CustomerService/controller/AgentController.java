@@ -24,8 +24,11 @@ public class AgentController {
     private final AgentService agentService;
 
     /**
-     * 客服清單，供轉派時做成下拉選單或驗證代號。
-     * 回傳已依代號排序，順序每次都一樣，選單不會跳來跳去。
+     * 客服清單，GET /api/agents。供轉派時做成下拉選單或驗證代號。
+     * <p>
+     * 沒有參數，也沒有分頁——客服人數不多，一次全給。
+     *
+     * @return {@code List<AgentResponse>}——200，已依 agentId 排序；沒資料時回空 list，不會是 null
      */
     @GetMapping
     public List<AgentResponse> findAll() {
@@ -35,12 +38,13 @@ public class AgentController {
     /**
      * 變更自己的工作狀態（右上角頭像的下拉選單）。
      *
-     * <b>路徑寫死 me，不是 {agentId}。</b>
-     * 有了 {agentId} 就等於開放「改別人的狀態」，而現階段沒有任何權限檢查擋得住。
-     * 之後 CTI 系統要設 ON_CALL 時，會另外開一支走機器對機器認證的端點，不共用這支。
+     * 路徑寫死 me、不吃 agentId：能指定 agentId 就等於開放「改別人的狀態」，
+     * 而現階段沒有權限檢查擋得住。用 PATCH 不用 PUT，是因為只改一個欄位、其他不動。
      *
-     * <p>用 PATCH 不用 PUT：PUT 的語意是「整個物件換掉」，但這裡只改一個欄位，
-     * 其他欄位不動，那是 PATCH 的語意。
+     * @param request {@link UpdateAgentStatusRequest}——request body，只有一個欄位 {@code status}，
+     *                值限 ONLINE / BREAK / RESTROOM / LUNCH / MEETING。不接受 agentId
+     * @return {@link AgentResponse}——200，改完之後的 agentId / name / status。
+     *         狀態不合法或通話中回 400
      */
     @PatchMapping("/me/status")
     public AgentResponse updateMyStatus(@Valid @RequestBody UpdateAgentStatusRequest request) {

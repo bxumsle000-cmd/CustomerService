@@ -10,54 +10,93 @@ import org.springframework.http.HttpStatus;
  * { "code": "INVALID_STATUS_TRANSITION", "message": "無法從「已解決」變更為「待客戶回覆」" }
  * </pre>
  *
- * <h2>為什麼把 HTTP 狀態碼放在例外身上</h2>
- * 「找不到工單」該回 404、「非法狀態轉換」該回 400，這件事只有丟例外的那個人最清楚。
- * 讓 Service 決定，Controller 那邊就不必寫一大串 if-else 去猜該回什麼碼。
- *
- * <h2>為什麼繼承 RuntimeException 而不是 Exception</h2>
- * Exception 是「受檢例外」，每一層呼叫都得寫 throws 或 try-catch，
- * 但這些錯誤本來就不是呼叫端能當場處理的（找不到就是找不到），
- * 一路往上丟到統一的地方處理才合理。
- * 附帶一提，Spring 的交易預設只在遇到 RuntimeException 時才回滾，
- * 用受檢例外的話還要多設定 rollbackFor。
+ * <p>
+ * 狀態碼放在例外身上，是因為「該回 404 還是 400」只有丟例外的那個人最清楚，
+ * Controller 就不必寫一串 if-else 去猜。
+ * <p>
+ * 繼承 RuntimeException 而不是 Exception：受檢例外每一層都得寫 throws 或 try-catch，
+ * 但這些錯誤本來就不是呼叫端能當場處理的。而且 Spring 的交易預設只對 RuntimeException 回滾。
  */
 public class ApiException extends RuntimeException {
 
     private final HttpStatus status;
     private final String code;
 
+    /**
+     * 一般不直接用這支，用下面四個靜態方法可讀性比較好。
+     *
+     * @param status  {@code HttpStatus}——要回給前端的狀態碼，例如 {@code HttpStatus.NOT_FOUND}
+     * @param code    {@code String}——錯誤代號，固定大寫英文，例如 {@code AGENT_NOT_FOUND}
+     * @param message {@code String}——給人看的中文訊息，會原封不動出現在回應裡，
+     *                所以<b>不要寫進資料表名稱、SQL 片段</b>
+     */
     public ApiException(HttpStatus status, String code, String message) {
         super(message);
         this.status = status;
         this.code = code;
     }
 
+    /**
+     * 這個錯誤該回的 HTTP 狀態碼。
+     *
+     * @return {@code HttpStatus}——例如 {@code HttpStatus.NOT_FOUND}，
+     *         由 GlobalExceptionHandler 照搬使用
+     */
     public HttpStatus getStatus() {
         return status;
     }
 
+    /**
+     * 給程式判斷用的錯誤代號。
+     *
+     * @return {@code String}——例如 {@code INVALID_CREDENTIALS}，原封不動放進回應的 code 欄位
+     */
     public String getCode() {
         return code;
     }
 
     // ---- 底下是常用的幾種，讓呼叫端讀起來像句子：ApiException.notFound(...) ----
 
-    /** 400：參數格式錯誤、非法的狀態轉換。 */
+    /**
+     * 400：參數格式錯誤、非法的狀態轉換。
+     *
+     * @param code    {@code String}——錯誤代號，例如 {@code INVALID_STATUS_TRANSITION}
+     * @param message {@code String}——給人看的中文訊息
+     * @return {@link ApiException}——<b>還沒被丟出</b>，要自己 {@code throw} 或交給 {@code orElseThrow}
+     */
     public static ApiException badRequest(String code, String message) {
         return new ApiException(HttpStatus.BAD_REQUEST, code, message);
     }
 
-    /** 401：未登入或帳密錯誤。 */
+    /**
+     * 401：未登入或帳密錯誤。
+     *
+     * @param code    {@code String}——錯誤代號，例如 {@code INVALID_CREDENTIALS}
+     * @param message {@code String}——給人看的中文訊息
+     * @return {@link ApiException}——還沒被丟出
+     */
     public static ApiException unauthorized(String code, String message) {
         return new ApiException(HttpStatus.UNAUTHORIZED, code, message);
     }
 
-    /** 403：已登入但無權限操作該筆資料。 */
+    /**
+     * 403：已登入但無權限操作該筆資料。
+     *
+     * @param code    {@code String}——錯誤代號
+     * @param message {@code String}——給人看的中文訊息
+     * @return {@link ApiException}——還沒被丟出
+     */
     public static ApiException forbidden(String code, String message) {
         return new ApiException(HttpStatus.FORBIDDEN, code, message);
     }
 
-    /** 404：工單／客服不存在。 */
+    /**
+     * 404：工單／客服不存在。
+     *
+     * @param code    {@code String}——錯誤代號，例如 {@code AGENT_NOT_FOUND}
+     * @param message {@code String}——給人看的中文訊息
+     * @return {@link ApiException}——還沒被丟出
+     */
     public static ApiException notFound(String code, String message) {
         return new ApiException(HttpStatus.NOT_FOUND, code, message);
     }

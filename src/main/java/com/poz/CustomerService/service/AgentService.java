@@ -17,19 +17,33 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 客服相關的business logic：登入、查自己、客服清單、變更工作狀態。
+ * 客服相關的 business logic：登入、查自己、客服清單、變更工作狀態。
  *
- * <h2>身分怎麼來（重要）</h2>
- * 採「Service 自己決定我是誰」的做法：方法簽章上<b>沒有</b> agentId 參數，
- * 由下方的 {@link #currentAgentId()} 提供。
- * <p>
- * 現階段它回傳一個寫死的代號。等之後接上 JWT，<b>只要改那一個方法的內容</b>，
- * 這裡所有方法的簽章都不用動，Controller 也不用動。
- * <p>
- * 這樣做還有一個好處：Controller 沒有機會把身分弄錯。
- * 如果改成由 Controller 傳 agentId 進來，只要有一支不小心從 request 參數取值
- * （而不是從 token），就會變成「任何人都能查別人的資料」——
- * 而且不會噴錯、測試也會過，是最難發現的那種漏洞。
+ * <h2>目前有哪些方法可用</h2>
+ * 對外開放（Controller 呼叫的就是這四支）：
+ * <ul>
+ *   <li>{@link #login(LoginRequest)} → {@link LoginResponse}
+ *       ——POST /api/auth/login。驗帳密、狀態重設為 ONLINE，回傳 token 和客服資訊</li>
+ *   <li>{@link #me()} → {@link AgentResponse}
+ *       ——GET /api/auth/me。取得「目前登入的自己」</li>
+ *   <li>{@link #findAll()} → {@code List<AgentResponse>}
+ *       ——GET /api/agents。全部客服、依代號排序，給轉派下拉選單用</li>
+ *   <li>{@link #updateMyStatus(UpdateAgentStatusRequest)} → {@link AgentResponse}
+ *       ——PATCH /api/agents/me/status。變更自己的工作狀態</li>
+ * </ul>
+ * 內部小工具（private，Controller 叫不到）：
+ * <ul>
+ *   <li>{@link #currentAgentId()}——「我是誰」，目前寫死，之後接 JWT 只改這一支</li>
+ *   <li>{@link #findAgentOrThrow(String)}——依代號撈客服，查不到丟 404</li>
+ *   <li>{@link #invalidCredentials()}——產生 401 例外</li>
+ * </ul>
+ * <b>還沒有的</b>：新增客服、改密碼、停用帳號。客服資料目前由 V2__seed_agents.sql 直接塞進資料庫。
+ *
+ * <h2>身分怎麼來</h2>
+ * 方法簽章上<b>都沒有</b> agentId 參數，「我是誰」一律由 {@link #currentAgentId()} 決定。
+ * 這樣 Controller 就沒機會把身分弄錯——若改由 Controller 傳進來，
+ * 只要有一支不小心從 request 參數取值而不是從 token，就變成「任何人都能查別人的資料」，
+ * 而且不會噴錯、測試也會過。
  */
 @Service
 @RequiredArgsConstructor
@@ -49,28 +63,25 @@ public class AgentService {
     /** 允許客服手動選擇的狀態。刻意不含 ON_CALL。 */
     private static final Set<String> PICKABLE_STATUS =
             Set.of("ONLINE", "BREAK", "RESTROOM", "LUNCH", "MEETING");
-    /**
-     * 還沒接 JWT，所以先回一個明顯是假的字串。
-     * 故意寫得很醒目，萬一哪天不小心上線了，一眼就看得出來不對勁。
-     */
+
+    /** 還沒接 JWT，先回一個明顯是假的字串，萬一不小心上線一眼就看得出來不對勁。 */
     private static final String DEV_PLACEHOLDER_TOKEN = "DEV-TOKEN-NOT-A-REAL-JWT";
+
     // ------------------------------------------------------------------
     // 目前登入的客服
     // ------------------------------------------------------------------
 
-    /**
-     * 開發階段暫時寫死的客服代號，對應 V2__seed_agents.sql 建的「林曉明」。
-     * 這是整個專案唯一一處假裝知道「我是誰」的地方。
-     */
+    /** 開發階段寫死的客服代號，對應 V2__seed_agents.sql 建的「林曉明」。 */
     private static final String DEV_CURRENT_AGENT_ID = "CSC00001";
 
     /**
      * 目前登入的客服代號。
+     * <p>
+     * 接上 JWT 之後把內容換成
+     * {@code SecurityContextHolder.getContext().getAuthentication().getName()} 就好，
+     * 其他地方都不用動。
      *
-     * <b>接上 JWT 之後，把內容換成下面這行就好，其他地方都不用動：</b>
-     * <pre>
-     * return SecurityContextHolder.getContext().getAuthentication().getName();
-     * </pre>
+     * @return {@code String}——客服代號，例如 CSC00001。現階段固定回傳寫死的值，不會是 null
      */
     private String currentAgentId() {
         return DEV_CURRENT_AGENT_ID;
@@ -81,12 +92,12 @@ public class AgentService {
     // ------------------------------------------------------------------
 
     /**
-     * 登入，對應 POST /api/auth/login。
+     * 登入，對應 POST /api/auth/login。成功會把狀態重設為 ONLINE。
      *
-     * <h4>失敗訊息為什麼不區分「帳號不存在」和「密碼錯誤」</h4>
-     * 兩者分開講，等於告訴嘗試入侵的人「這個帳號是存在的」，
-     * 對方就能先枚舉出有效帳號，再集中火力猜密碼。
-     * 所以下面兩種失敗都丟同一個 code、同一句訊息。
+     * @param request {@link LoginRequest}——客服代號與密碼明文，不可為 null
+     * @return {@link LoginResponse}——token 與登入者的公開資訊，status 一定是 ONLINE
+     * @throws ApiException 401 / {@code INVALID_CREDENTIALS}——代號不存在或密碼錯誤，
+     *                      兩者刻意回相同訊息
      */
     @Transactional
     public LoginResponse login(LoginRequest request) {
@@ -97,20 +108,23 @@ public class AgentService {
             throw invalidCredentials();
         }
 
-        // docs/api.md 要求：登入成功要把狀態重設為 ONLINE。
+        // docs/api.md 要求：登入成功要把狀態重設為 ONLINE，
         // 否則上次下班前留下的「午休」會被帶到今天。
         //
-        // 這裡不必呼叫 save()：方法有 @Transactional，agent 是「受管理的」實體，
-        // 交易結束時 Hibernate 會自動偵測到欄位變動並發出 UPDATE
-        // （順便觸發 Agents 的 @PreUpdate 更新 updated_at）。
+        // 不必呼叫 save()：方法有 @Transactional、agent 是受管理的實體，
+        // 交易結束時 Hibernate 會自動偵測欄位變動並發出 UPDATE。
         agent.setStatus(STATUS_ONLINE);
 
         return new LoginResponse(DEV_PLACEHOLDER_TOKEN, AgentResponse.from(agent));
     }
 
     /**
-     * 取得目前登入的客服，對應 GET /api/auth/me。
-     * 供側邊欄與右上角的狀態選單顯示。
+     * 取得目前登入的客服，對應 GET /api/auth/me。供側邊欄與右上角狀態選單顯示。
+     * <p>
+     * 沒有參數——「我是誰」由 {@link #currentAgentId()} 決定，不由呼叫端指定。
+     *
+     * @return {@link AgentResponse}——目前登入者的 agentId / name / status
+     * @throws ApiException 404 / {@code AGENT_NOT_FOUND}——登入中的代號在資料庫查不到
      */
     @Transactional(readOnly = true)
     public AgentResponse me() {
@@ -118,11 +132,10 @@ public class AgentService {
     }
 
     /**
-     * 客服清單，對應 GET /api/agents。
-     * 供轉派時驗證代號或做成下拉選單。
+     * 客服清單，對應 GET /api/agents。供轉派時驗證代號或做成下拉選單。
      *
-     * 依代號排序，讓回傳順序穩定——不排序的話，資料庫每次回傳的順序不保證一致，
-     * 畫面上的下拉選單就會跳來跳去。
+     * @return {@code List<AgentResponse>}——全部客服，已依 agentId 由小到大排序；
+     *         沒資料時回空 list，不會是 null
      */
     @Transactional(readOnly = true)
     public List<AgentResponse> findAll() {
@@ -135,19 +148,20 @@ public class AgentService {
     /**
      * 變更自己的工作狀態，對應 PATCH /api/agents/me/status。
      *
-     * <h4>要擋兩件事，都回 400</h4>
-     * <ol>
-     *   <li>送 ON_CALL——通話中只能由通話事件觸發，不接受手動設定</li>
-     *   <li>目前已經是 ON_CALL——通話中不允許變更，必須等通話結束</li>
-     * </ol>
-     * 第 1 點 DTO 的 @Pattern 也會擋，但那是 Controller 加了 @Valid 才會生效；
-     * 這裡再擋一次，是因為 Service 不該假設呼叫端一定做過驗證。
-     * 第 2 點 DTO 擋不了——它看不到資料庫裡的現況，只有這裡知道。
+     * @param request {@link UpdateAgentStatusRequest}——要切換到的狀態，不可為 null。
+     *                只接受 ONLINE / BREAK / RESTROOM / LUNCH / MEETING。
+     *                沒有 agentId，改的一定是自己
+     * @return {@link AgentResponse}——改完之後的 agentId / name / status
+     * @throws ApiException 400 / {@code INVALID_AGENT_STATUS}——狀態不在白名單內（含 ON_CALL）；
+     *                      400 / {@code AGENT_ON_CALL}——目前通話中，不允許變更；
+     *                      404 / {@code AGENT_NOT_FOUND}——登入中的代號在資料庫查不到
      */
     @Transactional
     public AgentResponse updateMyStatus(UpdateAgentStatusRequest request) {
         String newStatus = request.status();
 
+        // DTO 的 @Pattern 也會擋這一關，但那要 Controller 加了 @Valid 才生效，
+        // Service 不該假設呼叫端一定驗過。
         if (!PICKABLE_STATUS.contains(newStatus)) {
             throw ApiException.badRequest(
                     "INVALID_AGENT_STATUS",
@@ -158,6 +172,7 @@ public class AgentService {
 
         Agents agent = findAgentOrThrow(currentAgentId());
 
+        // 這一關 DTO 擋不了——它看不到資料庫裡的現況，只有這裡知道。
         if (STATUS_ON_CALL.equals(agent.getStatus())) {
             throw ApiException.badRequest(
                     "AGENT_ON_CALL",
@@ -174,15 +189,13 @@ public class AgentService {
     // ------------------------------------------------------------------
 
     /**
-     * 依代號撈客服，查不到就丟 404。
-     * <p>
-     * 抽出來是因為 {@link #me()} 和 {@link #updateMyStatus} 都要做同一件事，
-     * 錯誤訊息也該一致。
+     * 依代號撈客服，查不到就丟 404。{@link #me()} 和 {@link #updateMyStatus} 共用，
+     * 錯誤訊息才會一致。
      *
-     * @param agentId 客服代號，例如 CSC00001
-     * @return <b>受 Hibernate 管理的</b>實體。這點很重要：在有 {@code @Transactional}
-     *         的方法裡改它的欄位，交易結束時會自動寫回資料庫，不需要呼叫 save()
-     * @throws ApiException 404 / {@code AGENT_NOT_FOUND}，當代號不存在
+     * @param agentId {@code String}——客服代號，例如 CSC00001
+     * @return {@link Agents}——<b>受 Hibernate 管理的</b>實體。在有 {@code @Transactional}
+     *         的方法裡改它的欄位，交易結束會自動寫回資料庫，不必呼叫 save()
+     * @throws ApiException 404 / {@code AGENT_NOT_FOUND}——代號不存在
      */
     private Agents findAgentOrThrow(String agentId) {
         return agentsRepository.findById(agentId)
@@ -191,20 +204,14 @@ public class AgentService {
     }
 
     /**
-     * 產生「帳號或密碼錯誤」的例外（401）。
+     * 產生「帳號或密碼錯誤」的例外。
      * <p>
-     * <b>注意是「回傳」不是「丟出」</b>——所以兩種用法都可以：
-     * <pre>
-     * throw invalidCredentials();                      // 直接丟
-     * .orElseThrow(AgentService::invalidCredentials)   // 交給 Optional 延後呼叫
-     * </pre>
-     * <p>
-     * 抽成方法的理由不是為了少打字，而是要<b>保證「帳號不存在」和「密碼錯誤」
-     * 丟出完全相同的內容</b>。兩者訊息只要有一點不同，攻擊者就能拿來判斷
-     * 哪些代號是有效帳號，先枚舉出名單再集中猜密碼。
-     * 寫成兩份的話，哪天有人改了其中一句文案就破功了。
+     * 抽成方法不是為了少打字，而是要<b>保證「帳號不存在」和「密碼錯誤」丟出完全相同的內容</b>，
+     * 免得哪天有人改了其中一句文案，攻擊者就能拿來判斷哪些代號是有效帳號。
      *
-     * @return 401 / {@code INVALID_CREDENTIALS} 的例外物件
+     * @return {@link ApiException}——401 / {@code INVALID_CREDENTIALS}。
+     *         <b>是「回傳」不是「丟出」</b>，所以 {@code throw invalidCredentials();} 和
+     *         {@code .orElseThrow(AgentService::invalidCredentials)} 兩種用法都可以
      */
     private static ApiException invalidCredentials() {
         return ApiException.unauthorized("INVALID_CREDENTIALS", "客服代號或密碼錯誤");

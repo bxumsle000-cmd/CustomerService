@@ -202,15 +202,15 @@ Response：
   "comments": [
     {
       "commentId": 1,
-      "authorId": null,
-      "authorName": "系統",
+      "agentId": null,
+      "agentName": "系統",
       "content": "工單經電話進線建立",
       "createdAt": "2026-08-17T09:12:00"
     },
     {
       "commentId": 2,
-      "authorId": "CSC00001",
-      "authorName": "林曉明",
+      "agentId": "CSC00001",
+      "agentName": "林曉明",
       "content": "已致電客戶，確認為帳號被鎖定，正在協助解鎖。",
       "createdAt": "2026-08-17T10:03:00"
     }
@@ -303,7 +303,7 @@ Request：
 
 `ticket_comments.agent_id` 取自 token，**不由前端指定**。
 
-> 回應裡的 JSON 欄位叫 `authorId` / `authorName`，資料庫欄位叫 `agent_id`，兩者是同一件事——欄位名不同是刻意的：這一欄在系統事件時為 NULL，叫「作者」比叫「客服」更貼近它的語意。DTO 轉換時要記得對應。
+> `agentId` 為 NULL 代表這是系統事件（建單、狀態變更、轉派），此時 `agentName` 固定回 `"系統"`。`agentName` 是後端算出來的顯示用欄位，資料庫沒有這一欄。
 
 > 系統事件留言（狀態變更、轉派、建單）一律由後端在對應操作中自動寫入，前端不應該、也不需要送這種紀錄。
 

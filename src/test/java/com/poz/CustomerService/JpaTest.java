@@ -16,25 +16,16 @@ import org.springframework.transaction.annotation.Transactional;
 /**
  * JPA 語法練習場。
  *
- * 【怎麼用】
- *   1. 先確認資料庫開著：docker compose up -d
- *   2. 在下面 練習() 方法裡隨便寫你想試的 JPA 語法
- *   3. 點方法左邊的綠色三角形 ▶ 執行
- *   4. 結果看 IDEA 下方的 Run 視窗（System.out.println 印的東西會出現在那）
+ * <h2>怎麼用</h2>
+ * 先 {@code docker compose up -d} 把資料庫開起來，在下面的方法裡寫想試的語法，
+ * 點方法左邊的綠色三角形執行，結果看 IDEA 下方的 Run 視窗。
  *
- * 【JpaRepository 免費送你的方法，直接就能玩】
- *   findAll()              查全部，回傳 List<Agents>
- *   findById("CSC00001")   依主鍵查，回傳 Optional<Agents>
- *   count()                總筆數
- *   existsById("CSC00001") 存不存在，回傳 boolean
- *   save(物件)              新增或更新
- *   deleteById("CSC00001") 依主鍵刪除
- *
- * 【想試自訂查詢】
- *   到 AgentsRepository 介面裡加一行方法簽章就好，不用寫實作，例如：
- *       List<Agents> findByStatus(String status);
- *       List<Agents> findByNameContaining(String keyword);
- *   Spring Data 會自動照方法名稱幫你生 SQL。回來這裡就能呼叫。
+ * <h2>JpaRepository 免費送的方法</h2>
+ * {@code findAll()} / {@code findById(主鍵)} → Optional / {@code count()} /
+ * {@code existsById(主鍵)} / {@code save(物件)}（新增與更新共用）/ {@code deleteById(主鍵)}。
+ * <p>
+ * 想要自訂查詢，到 repository 介面加一行方法簽章就好、不用寫實作，
+ * 例如 {@code List<Agents> findByStatus(String status)}，Spring Data 會照名稱自動生 SQL。
  */
 @SpringBootTest
 @Transactional   // 跑完自動回滾，怎麼玩都不會弄髒資料庫。
@@ -151,7 +142,13 @@ class JpaTest {
         System.out.println("刪除後還在嗎？" + ticketCommentsRepository.existsById(id));
     }
 
-    /** 上面測試共用的小工具，省得每次都寫三行。 */
+    /**
+     * 上面測試共用的小工具，省得每次都寫三行。
+     *
+     * @param content {@code String}——留言內容
+     * @return {@link TicketComments}——還<b>沒存進資料庫</b>，ticketId / agentId 已填測試常數；
+     *         commentId 和 createdAt 是 null，要 save() 之後才有值
+     */
     private TicketComments newComment(String content) {
         TicketComments comment = new TicketComments();
         comment.setTicketId(TEST_TICKET_ID);
