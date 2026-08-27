@@ -1,12 +1,16 @@
 package com.poz.CustomerService.entity;
 
 import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
-
-// 欄位命名規則同 Agents：Java 用 camelCase，資料庫欄位用 snake_case，靠 @Column 對接。
 @Data
+@Builder
+@NoArgsConstructor
+@AllArgsConstructor
 @Entity
 @Table(name = "tickets")
 public class Tickets {

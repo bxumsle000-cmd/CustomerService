@@ -81,18 +81,25 @@ class JpaTest {
     @Autowired
     TicketsRepository ticketsRepository;
 
+    // Tickets 有 @Builder，所以改用這種一路串下去的寫法，取代原本九行 setter。
+    // 好處是整段是一個運算式：物件要嘛完整建好、要嘛還不存在，
+    // 不會有「setter 才設到一半」的半成品被別的程式碼看到。
+    //
+    // 沒填的欄位（ticketId / followUpAt / createdAt / updatedAt）會是 null，
+    // 這是對的——ticketId 由資料庫 IDENTITY 發號，時間戳由 @PrePersist 補。
     @Test
     void insertTicket() {
-        Tickets tickets = new Tickets();
-        tickets.setTicketNo("TK-12345");
-        tickets.setCustomerName("陳小美");
-        tickets.setContactPhone("0973862551");
-        tickets.setTitle("詢問帳單");
-        tickets.setDescription("這次帳單異常高額，詢問原因");
-        tickets.setStatus("RESOLVED");
-        tickets.setCategory("帳單問題");
-        tickets.setChannel("Phone");
-        tickets.setAssigneeId("CSC00001");
+        Tickets tickets = Tickets.builder()
+                .ticketNo("TK-12346")
+                .customerName("陳小美")
+                .contactPhone("0973862551")
+                .title("詢問帳單")
+                .description("這次帳單異常高額，詢問原因")
+                .status("RESOLVED")
+                .category("帳單問題")
+                .channel("Phone")
+                .assigneeId("CSC00001")
+                .build();
 
         Tickets saveTickets = ticketsRepository.save(tickets);
         System.out.println(saveTickets);
