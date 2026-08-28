@@ -327,10 +327,17 @@ let tickets = [
 ];
 
 function mk(no,custId,title,desc,status,pri,cat,ch,created,due,comments){
-  return {id:++uid,no:genTicketNo(),custId,title,desc,status,pri,cat,channel:ch,assignee:ME,contactPhone:'',followUp:null,createdAt:created,dueAt:due,comments};
+  /* updatedAt：有留言就取最後一則的時間，沒有就等於建立時間。
+     對應後端 Tickets.applyDefaults()——從沒被動過的工單，updated_at 等於 created_at。 */
+  const updated=(comments&&comments.length)?Math.max(created,...comments.map(c=>c.time)):created;
+  return {id:++uid,no:genTicketNo(),custId,title,desc,status,pri,cat,channel:ch,assignee:ME,contactPhone:'',followUp:null,createdAt:created,updatedAt:updated,dueAt:due,comments};
 }
 function sys(text,t){return {system:true,author:'系統',content:text,time:t}}
 function usr(a,text,t){return {system:false,author:a,content:text,time:t}}
+/* 「碰一下」工單：任何算是動靜的操作都要呼叫，首頁的「更新時間」才會跟著動。
+   對應後端要注意的坑——新增留言只會 INSERT 到 ticket_comments，不會觸發 Tickets 的
+   @PreUpdate，所以 TicketService 那邊也必須在同一個交易裡主動更新工單本身。 */
+function touch(t){ t.updatedAt=Date.now(); }
 
 /* 補一批範例資料，讓分頁真的有作用 */
 tickets[1].assignee=AGENTS[1]; tickets[3].assignee=AGENTS[1];
@@ -549,6 +556,7 @@ function createFromCall(){
   const asg=($('#c-reassign').checked && $('#c-assignee-code').value.trim()) ? $('#c-assignee-code').value.trim() : ME;
   t.assignee=asg;
   if(asg!==ME) t.comments.push(sys(`由 ${ME} 轉派給 ${asg}`,Date.now()));
+  t.updatedAt=t.createdAt;   /* 剛建立的工單還沒被「更新」過，兩個時間對齊 */
   tickets.unshift(t);
   endCall(true);
   state.currentTicket=t.id;
@@ -623,9 +631,11 @@ function listFiltered(){
     if(L.fName && !c.name.toLowerCase().includes(L.fName.toLowerCase()))return false;
     if(L.fPhone && !c.phone.includes(L.fPhone))return false;
     if(L.fAssignee && !t.assignee.toLowerCase().includes(L.fAssignee.toLowerCase()))return false;
+    /* 時間篩選刻意用 createdAt：「近 7 天」指的是最近 7 天「進來」的案件，
+       不是最近 7 天被碰過的案件（否則半年前的老單今天被動一下就會跑出來）。 */
     if(L.fTime!=='ALL'){ const days={D1:1,D7:7,D30:30}[L.fTime]; if(now-t.createdAt > days*86400000)return false; }
     return true;
-  }).sort((a,b)=>b.createdAt-a.createdAt);
+  }).sort((a,b)=>b.updatedAt-a.updatedAt);   /* 預設排序：最近有動靜的排前面 */
 }
 
 function renderTickets(v){
@@ -665,10 +675,10 @@ function renderTickets(v){
     </div>
 
     <div class="card"><table>
-      <thead><tr><th style="width:16%">單號</th><th style="width:17%">姓名</th><th style="width:19%">電話</th><th style="width:15%">狀態</th><th style="width:14%">客服</th><th style="width:19%">時間</th></tr></thead>
+      <thead><tr><th style="width:15%">單號</th><th style="width:14%">姓名</th><th style="width:17%">電話</th><th style="width:12%">狀態</th><th style="width:12%">客服</th><th style="width:15%">建立時間</th><th style="width:15%">更新時間</th></tr></thead>
       <tbody>${pageRows.length?pageRows.map(t=>{const c=cust(t.custId);return `<tr onclick="openTicket(${t.id})">
-        <td class="mono">${t.no}</td><td style="font-weight:500">${c.name}</td><td>${c.phone}</td><td>${badge(t)}</td><td>${t.assignee}</td><td style="color:var(--faint)">${fmt(t.createdAt)}</td>
-      </tr>`}).join(''):`<tr><td colspan="6"><div class="empty">沒有符合條件的資料</div></td></tr>`}</tbody>
+        <td class="mono">${t.no}</td><td style="font-weight:500">${c.name}</td><td>${c.phone}</td><td>${badge(t)}</td><td>${t.assignee}</td><td style="color:var(--faint)">${fmt(t.createdAt)}</td><td style="color:var(--faint)">${t.updatedAt===t.createdAt?'—':fmt(t.updatedAt)}</td>
+      </tr>`}).join(''):`<tr><td colspan="7"><div class="empty">沒有符合條件的資料</div></td></tr>`}</tbody>
     </table></div>
 
     <div class="pager">
@@ -745,19 +755,19 @@ function reassign(){
   if(!to){$('#r-assignee-code').focus();$('#r-assignee-code').style.borderColor='var(--red)';return;}
   if(to===t.assignee) return;
   t.comments.push(sys(`由 ${t.assignee} 轉派給 ${to}`,Date.now()));
-  t.assignee=to;
+  t.assignee=to;touch(t);
   renderTicket($('#view'));
 }
 function changeStatus(ns){
   const t=tickets.find(x=>x.id===state.currentTicket);
   if(!TRANSITIONS[t.status].includes(ns)){alert('非法的狀態轉換');return;} /* 狀態機守門 */
   t.comments.push(sys(`狀態由「${STATUS[t.status].label}」變更為「${STATUS[ns].label}」`,Date.now()));
-  t.status=ns;renderTicket($('#view'));
+  t.status=ns;touch(t);renderTicket($('#view'));
 }
 function addComment(){
   const el=$('#cm');const txt=el.value.trim();if(!txt)return;
   const t=tickets.find(x=>x.id===state.currentTicket);
-  t.comments.push(usr(ME,txt,Date.now()));el.value='';renderTicket($('#view'));
+  t.comments.push(usr(ME,txt,Date.now()));touch(t);el.value='';renderTicket($('#view'));
 }
 
 /* =================== CUSTOMERS =================== */
@@ -864,9 +874,10 @@ function calAdd(){
   const s=new Date(state.cal.sel);
   const t=tickets.find(x=>x.id===id); if(!t)return;
   t.followUp=new Date(s.getFullYear(),s.getMonth(),s.getDate(),hh,mm).getTime(); /* 一張案件只排一天：覆蓋 */
+  touch(t);
   renderCalendar($('#view'));
 }
-function calRemove(id){ const t=tickets.find(x=>x.id===id); if(t)t.followUp=null; renderCalendar($('#view')); }
+function calRemove(id){ const t=tickets.find(x=>x.id===id); if(t){t.followUp=null;touch(t);} renderCalendar($('#view')); }
 
 /* =================== NEW TICKET =================== */
 function renderNewTicket(v){
@@ -917,6 +928,7 @@ function saveNew(){
   comments.push(sys(`狀態設定為「${STATUS[status].label}」`,Date.now()));
   const t=mk('',c.id,title,desc||title,status,'MEDIUM',$('#n-cat').value,'PHONE',Date.now(),Date.now()+8*3600*1000,comments);
   t.contactPhone=contact;
+  t.updatedAt=t.createdAt;   /* 剛建立的工單還沒被「更新」過，兩個時間對齊 */
   tickets.unshift(t);
   state.currentTicket=t.id;go('ticket');
 }

@@ -100,13 +100,12 @@ package com.poz.CustomerService.dto;
  *   [ ] ./mvnw compile 通過
  * =====================================================================
  */
-import com.poz.CustomerService.entity.Tickets;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 public record CreateTicketRequest(
-    // 主旨對應 tickets.title NVARCHAR(50)（V4 由 200 縮下來），所以上限是 50
+    // 主旨對應 tickets.title NVARCHAR(50)（V5 由 200 縮下來），所以上限是 50
     @NotBlank(message = "不可以沒有主旨")
     @Size(max = 50, message = "主旨長度不可超過 50")
     String title,
@@ -126,6 +125,7 @@ public record CreateTicketRequest(
     @NotBlank(message = "不可以沒有分類")
     String category,
 
+    @NotBlank(message = "不可以沒有客服處理")
     String assigneeId,
 
     // description 對應 NVARCHAR(MAX)，沒有實際上限，不加 @Size
