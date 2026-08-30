@@ -1,3 +1,5 @@
+> 📌 本文件僅供個人參考閱讀，AI 寫 Code 時請勿參考此檔案內容。
+
 # JPQL 語法整理
 
 > 本文所有 JPQL 範例都拿這個專案的 `Agents` / `Tickets` / `TicketComments` 三個 Entity，

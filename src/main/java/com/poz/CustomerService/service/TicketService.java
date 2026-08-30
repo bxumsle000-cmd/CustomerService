@@ -17,8 +17,8 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collections;
 import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -34,7 +34,6 @@ import java.util.concurrent.ThreadLocalRandom;
  * 內部小工具（private，Controller 叫不到）：
  * <ul>
  *   <li>{@link #resolveAssignee(String, String)}——決定指派給誰，沒指定就是自己</li>
- *   <li>{@link #generateTicketNo()}——產生對外的工單編號 TK-XXXXXX</li>
  *   <li>{@link #writeComment(Tickets, String, String)}——寫一筆處理記錄</li>
  * </ul>
  * <b>還沒有的</b>：列表查詢、工單詳情、狀態變更、轉派、新增留言。
@@ -55,34 +54,23 @@ public class TicketService {
     /**
      * 工單狀態白名單，順便存中文標籤——系統留言「狀態設定為「處理中」」要用。
      * 三個值必須跟 {@code CK_tickets_status} 一致，否則存進去會被資料庫擋成 500。
+     * <p>
+     * 用 {@code LinkedHashMap} 而不是 {@code Map.of()}：這裡的 put 順序有意義，
+     * {@code Map.of()} 建出來的 Map <b>不保證順序</b>，拿它決定畫面排列會出問題。
      */
-    private static final Map<String, String> STATUS_LABEL = Map.of(
-            "IN_PROGRESS", "處理中",
-            "PENDING", "待客戶回覆",
-            "RESOLVED", "已解決");
-
-    /** 通話工作台在通話中建立。 */
-    private static final String CHANNEL_PHONE = "PHONE";
+    private static final Map<String, String> STATUS_LABEL;
+    static {
+        Map<String, String> labels = new LinkedHashMap<>();
+        labels.put("IN_PROGRESS", "處理中");
+        labels.put("PENDING", "待客戶回覆");
+        labels.put("RESOLVED", "已解決");
+        STATUS_LABEL = Collections.unmodifiableMap(labels);
+    }
 
     /** 客服自己從「＋ 新增派件」手動建立。首字大寫是照 {@code CK_tickets_channel} 的值。 */
     private static final String CHANNEL_AGENT = "Agent";
 
-    /** {@code tickets.title} 是 NVARCHAR(50)（V5 縮下來的），超過就存不進去。 */
-    private static final int TITLE_MAX_LENGTH = 50;
-
     private static final String TICKET_NO_PREFIX = "TK-";
-
-    /**
-     * 三種狀態的顯示順序，tabCounts 就照這個順序排。
-     * <p>
-     * 不直接用 {@code STATUS_LABEL.keySet()} 的原因：{@code Map.of()} 建出來的 Map
-     * <b>不保證順序</b>（而且每次跑順序還可能不一樣），拿它來決定畫面上的排列會很怪。
-     */
-    private static final List<String> STATUS_ORDER =
-            List.of("IN_PROGRESS", "PENDING", "RESOLVED");
-
-    /** tabCounts 裡「全部」那一格的 key，前端第一個 tab 用的。 */
-    private static final String TAB_ALL = "ALL";
 
     /** 每頁筆數上限。不擋的話，有人送 size=999999 就是一次把整張表撈進記憶體。 */
     private static final int MAX_PAGE_SIZE = 50;
@@ -104,7 +92,7 @@ public class TicketService {
      *
      * @param page {@code int}——頁碼，<b>從 1 開始</b>（不是 0）
      * @param size {@code int}——每頁筆數，1 到 {@value #MAX_PAGE_SIZE}
-     * @return {@link TicketPageResponse}——這一頁的工單、分頁資訊、四個 tab 的件數。
+     * @return {@link TicketPageResponse}——這一頁的工單與分頁資訊。
      *         查無資料時 content 是空 list、totalElements 是 0，<b>不是 404</b>
      *         （「符合條件的有 0 筆」是正常結果，不是錯誤）
      * @throws ApiException 400 / {@code VALIDATION_ERROR}——page 小於 1，
@@ -127,7 +115,7 @@ public class TicketService {
         Page<Tickets> result =
                 ticketsRepository.findAll(PageRequest.of(page - 1, size, DEFAULT_SORT));
 
-        return TicketPageResponse.from(result, countByTab());
+        return TicketPageResponse.from(result);
     }
 
     /**
@@ -141,39 +129,35 @@ public class TicketService {
      *                {@code ticketNo} 不在裡面，由後端產生；「誰建立的」也不由前端指定
      * @return {@link TicketListItemResponse}——建立好的工單，含後端發的 {@code ticketNo}。
      *         前端拿到之後就能導到工單詳情頁
-     * @throws ApiException 400 / {@code INVALID_TICKET_STATUS}——狀態不在白名單內；
-     *                      400 / {@code VALIDATION_ERROR}——主旨超過 50 字；
-     *                      404 / {@code AGENT_NOT_FOUND}——指定的轉派對象不存在。
-     *                      必填欄位空白不在這裡擋，由 DTO 的 {@code @NotBlank} 負責
+     * @throws ApiException 404 / {@code AGENT_NOT_FOUND}——指定的轉派對象不存在。
+     *                      必填欄位空白、主旨超長、status 不在白名單內都不在這裡擋，
+     *                      由 DTO 的 {@code @NotBlank} / {@code @Size} / {@code @Pattern} 負責
      */
     @Transactional
     public TicketListItemResponse create(CreateTicketRequest request) {
-        // 「必填」不在這裡檢查——交給 CreateTicketRequest 的 @NotBlank 搭配 Controller 的
-        // @Valid。不合格的請求會被 Spring 擋在 Controller，根本進不到這裡，
-        // 錯誤文案也只有 DTO 那一份，不會兩邊各寫一句然後改到不一致。
+        // 「必填」「主旨長度」「status 白名單」都不在這裡檢查——交給 CreateTicketRequest 的
+        // @NotBlank / @Size / @Pattern 搭配 Controller 的 @Valid。不合格的請求會被 Spring
+        // 擋在 Controller，根本進不到這裡，錯誤文案也只有 DTO 那一份，
+        // 不會兩邊各寫一句然後改到不一致。
         //
         // 代價寫清楚：這支方法假設呼叫端已經驗過。從 Controller 以外的地方呼叫
-        // （測試、排程、其他 Service）而且沒驗，title / category 是 null 時這裡會 NPE。
+        // （測試、排程、其他 Service）而且沒驗，title / category 是 null 時這裡會 NPE，
+        // status 傳白名單以外的值時 STATUS_LABEL.get(status) 會拿到 null。
         String status = request.status();
-        if (!STATUS_LABEL.containsKey(status)) {
-            throw ApiException.badRequest("INVALID_TICKET_STATUS", "不支援的工單狀態：" + status);
-        }
-
         String channel = request.channel();
 
         String title = request.title().trim();
-        if (title.length() > TITLE_MAX_LENGTH) {
-            throw ApiException.badRequest("VALIDATION_ERROR",
-                    "主旨長度不可超過 " + TITLE_MAX_LENGTH);
-        }
         String category = request.category().trim();
 
         String me = currentAgentProvider.currentAgentId();
         String assigneeId = resolveAssignee(request.assigneeId(), me);
         String description = request.description();
 
+        // ticket_no 是 NOT NULL + UNIQUE，INSERT 當下一定要給值，但 ticketId 是 IDENTITY，
+        // 要 save() 完才會知道，兩個沒辦法同時湊出來，所以先塞一個暫時亂數頂著存檔，
+        // 存完馬上用 ticketId 換成保證不重複的正式編號（見下面 ticket.setTicketNo(...)）。
         Tickets ticket = ticketsRepository.save(Tickets.builder()
-                .ticketNo(generateTicketNo())
+                .ticketNo(TICKET_NO_PREFIX + ThreadLocalRandom.current().nextInt(100_000, 1_000_000))
                 .title(title)
                 .customerName(request.customerName())
                 // 只有電話去頭尾空白。使用者常從別處複製貼上，多一個空白會讓
@@ -189,8 +173,14 @@ public class TicketService {
         // createdAt / updatedAt 不用自己填，Tickets 的 @PrePersist 會補上同一個時間，
         // 剛好符合前端「剛建立的工單兩個時間對齊」的顯示規則（更新時間顯示為「—」）。
 
+        // 換成用 ticketId 組出來的正式編號（保證不重複，已知限制：號碼遞增，可被猜出
+        // 大概開了幾張工單；ticketId 超過 999999 時位數會頂到 ticket_no 的 NVARCHAR(10)
+        // 上限）。ticket 是這個交易裡受管理的 entity，改完欄位不用再呼叫 save()，
+        // 交易結束時 dirty checking 會自動送出 UPDATE（同 AgentService.login() 的註解）。
+        ticket.setTicketNo(TICKET_NO_PREFIX + String.format("%06d", ticket.getTicketId()));
+
         // 處理記錄，順序照 index.html 的 createFromCall()
-        writeComment(ticket, null, CHANNEL_PHONE.equals(channel)
+        writeComment(ticket, null, channel.equals("PHONE")
                 ? "工單經電話進線建立"
                 : "工單以新增派件建立");
         writeComment(ticket, me, description);
@@ -206,34 +196,6 @@ public class TicketService {
     // ------------------------------------------------------------------
     // 內部小工具
     // ------------------------------------------------------------------
-
-    /**
-     * 算出首頁四個 tab 括號裡的數字。
-     * <p>
-     * 這四個數字<b>不受篩選條件影響</b>，一律從全部工單算起。
-     * 理由看原型第 655 行：{@code tabCount} 是從 tickets 全部算的，沒有套 listFiltered()。
-     * 不這樣做的話，使用者停在「處理中」那個 tab 時，另外三個 tab 會全部變成 0，
-     * 他就再也點不回去了。
-     *
-     * @return {@code Map<String, Long>}——四個 key 一定都在，順序是
-     *         IN_PROGRESS / PENDING / RESOLVED / ALL。用 LinkedHashMap 才留得住順序
-     *         （前端是照 key 取值，順序只影響 JSON 讀起來順不順眼）
-     */
-    private Map<String, Long> countByTab() {
-        Map<String, Long> counts = new LinkedHashMap<>();
-        long all = 0;
-
-        for (String status : STATUS_ORDER) {
-            long count = ticketsRepository.countByStatus(status);
-            counts.put(status, count);
-            all += count;
-        }
-
-        // ALL 不是查出來的，是三個加起來——少打一次資料庫。
-        // 前提是 CK_tickets_status 保證 status 只會是這三種，不會有第四種漏算。
-        counts.put(TAB_ALL, all);
-        return counts;
-    }
 
     /**
      * 決定這張工單要指派給誰。
@@ -260,23 +222,6 @@ public class TicketService {
     }
 
     /**
-     * 產生對外的工單編號，格式 {@code TK-} + 六位數字（例：TK-084215），共 9 個字，
-     * 塞得進 {@code ticket_no} 的 NVARCHAR(10)。
-     * <p>
-     * <b>已知限制</b>：這裡<b>沒有</b>檢查編號是否已被用過，撞號時會由資料表上的
-     * {@code UQ_tickets_ticket_no} 擋下來，使用者看到的是 500。
-     * 九十萬個號碼隨機撞上的機率很低，但不是零。
-     * 要補這一關，{@code TicketsRepository} 需要一支
-     * {@code boolean existsByTicketNo(String ticketNo)}，
-     * 再把下面改成「產生 → 檢查 → 重試最多 N 次」的迴圈。
-     *
-     * @return {@code String}——工單編號，例如 TK-084215
-     */
-    private String generateTicketNo() {
-        return TICKET_NO_PREFIX + ThreadLocalRandom.current().nextInt(100_000, 1_000_000);
-    }
-
-    /**
      * 寫一筆處理記錄。
      *
      * @param ticket  {@link Tickets}——已經 save 過的工單，這裡要拿它被資料庫發號的 ticketId
@@ -294,89 +239,5 @@ public class TicketService {
         // 注意：時間只精確到秒，同一次建單的幾筆記錄時間會一樣，
         // 之後撈 timeline 排序時要再帶上 commentId 才不會亂序。
     }
-
-    // ==================================================================
-    // TODO 還沒寫的部分。建議照這個順序做，每做完一支就 compile 一次。
-    //
-    // 先加一個常數：狀態機。格式參考上面的 STATUS_LABEL。
-    //
-    //     private static final Map<String, List<String>> ALLOWED_TRANSITIONS = Map.of(
-    //             "IN_PROGRESS", List.of(...),
-    //             ...);
-    //
-    //     規則去 index.html:261 的 TRANSITIONS 抄，或看 api.md 那張表。
-    //     這份表 detail() 和 updateStatus() 都會用到，所以**只能有一份**。
-    //
-    // ------------------------------------------------------------------
-    // 對外的方法（Controller 會叫的）
-    // ------------------------------------------------------------------
-    //
-    // 1) search 的最簡版已經做好了（見上面），但**篩選條件還沒接**。
-    //    要接的話：把參數從 (int page, int size) 換成 TicketSearchRequest，
-    //    findAll(Pageable) 換成 TicketsRepository 裡 TODO(2) 那支自訂查詢。
-    //    分頁、排序、tabCounts 都不用重寫。
-    //
-    //    順序建議：一次只加一個條件，加完就打一次 API 確認，
-    //    六個一起加然後查不出東西時，你會不知道是哪一個寫壞的。
-    //
-    // 2) detail(String ticketNo) → TicketDetailResponse
-    //    @Transactional(readOnly = true)
-    //
-    //    步驟：用 ticketNo 撈工單（查不到丟 404 / TICKET_NOT_FOUND）
-    //    → 用它的 ticketId 撈 comments → 把 agentId 換成 agentName
-    //    → 查 ALLOWED_TRANSITIONS → 組成 TicketDetailResponse。
-    //
-    //    agentName 不要在迴圈裡一則一則查（N+1），理由見 TicketCommentResponse 的註解。
-    //
-    // 3) updateStatus(String ticketNo, UpdateTicketStatusRequest request) → TicketDetailResponse
-    //    @Transactional
-    //
-    //    步驟：撈工單 → 查 ALLOWED_TRANSITIONS 確認這個轉換合法
-    //    （不合法丟 400 / INVALID_STATUS_TRANSITION，訊息用中文標籤，
-    //      例：「無法從「已解決」變更為「待客戶回覆」」——STATUS_LABEL 就是為此存在的）
-    //    → 改狀態 → writeComment(ticket, null, "狀態由「X」變更為「Y」")
-    //    → 回 detail。
-    //
-    //    注意：在 @Transactional 方法裡改「從 repository 撈出來的」實體，
-    //    交易結束會自動 UPDATE，**不需要呼叫 save()**。
-    //    （這叫 dirty checking，AgentService.login() 那段註解有寫。）
-    //
-    //    再注意：新舊狀態一樣時要怎麼辦？寫一筆「由處理中變更為處理中」很怪。
-    //
-    // 4) updateAssignee(String ticketNo, UpdateTicketAssigneeRequest request) → TicketDetailResponse
-    //    @Transactional
-    //
-    //    步驟：撈工單 → 確認新客服存在（現成的 resolveAssignee 能不能重用？看一下簽章）
-    //    → 跟目前負責人相同就直接回、不做事也不寫留言（api.md 明寫這條）
-    //    → 改 assigneeId → writeComment(ticket, null, "由 A 轉派給 B")。
-    //
-    // 5) addComment(String ticketNo, CreateCommentRequest request) → ？
-    //    @Transactional
-    //
-    //    步驟：撈工單 → writeComment(ticket, currentAgentProvider.currentAgentId(), 內容)。
-    //
-    //    這一支有個容易漏掉的點：只寫 ticket_comments 的話，
-    //    tickets.updated_at **不會變**（@PreUpdate 只在 tickets 這張表被 UPDATE 時觸發）。
-    //    但列表是照 updated_at 排序的，「剛留言的工單」不會浮到最上面。
-    //    原型的 addComment() 有呼叫 touch(t)（第 771 行）。你要怎麼做到一樣的效果？
-    //
-    // ------------------------------------------------------------------
-    // 建議一併補的內部小工具（private）
-    // ------------------------------------------------------------------
-    //
-    //   findTicketOrThrow(String ticketNo) → Tickets
-    //       上面五支有四支開頭都是「用 ticketNo 撈工單，查不到丟 404」，抽出來。
-    //       寫法照 AgentService.findAgentOrThrow()。
-    //
-    //   toDetail(Tickets ticket) → TicketDetailResponse
-    //       detail / updateStatus / updateAssignee 三支的結尾都要組同一份回應，抽出來。
-    //
-    // ------------------------------------------------------------------
-    // 別忘了
-    // ------------------------------------------------------------------
-    //   [ ] readOnly = true 只用在查詢，會改資料的不能加
-    //   [ ] 所有錯誤都用 ApiException.notFound / badRequest 丟，不要自己 new RuntimeException
-    //   [ ] 錯誤訊息不要出現資料表名稱或 SQL 片段（見 ApiException 的註解）
-    // ==================================================================
 
 }
