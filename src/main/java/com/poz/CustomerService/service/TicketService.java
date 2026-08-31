@@ -1,6 +1,8 @@
 package com.poz.CustomerService.service;
 
 import com.poz.CustomerService.dto.CreateTicketRequest;
+import com.poz.CustomerService.dto.TicketCommentResponse;
+import com.poz.CustomerService.dto.TicketDetailResponse;
 import com.poz.CustomerService.dto.TicketListItemResponse;
 import com.poz.CustomerService.dto.TicketPageResponse;
 import com.poz.CustomerService.entity.TicketComments;
@@ -19,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -30,13 +33,14 @@ import java.util.concurrent.ThreadLocalRandom;
  * <ul>
  *   <li>{@link #search(int, int)}——工單列表，分頁並依更新時間排序（篩選條件還沒接）</li>
  *   <li>{@link #create(CreateTicketRequest)}——建立工單，同時寫入建單當下的處理記錄</li>
+ *   <li>{@link #detail(String)}——工單詳情，含處理記錄 timeline 與可轉換的狀態</li>
  * </ul>
  * 內部小工具（private，Controller 叫不到）：
  * <ul>
  *   <li>{@link #resolveAssignee(String, String)}——決定指派給誰，沒指定就是自己</li>
  *   <li>{@link #writeComment(Tickets, String, String)}——寫一筆處理記錄</li>
  * </ul>
- * <b>還沒有的</b>：工單詳情、狀態變更、轉派、新增留言。
+ * <b>還沒有的</b>：狀態變更、轉派、新增留言。
  */
 @Service
 @RequiredArgsConstructor
@@ -65,6 +69,29 @@ public class TicketService {
         labels.put("PENDING", "待客戶回覆");
         labels.put("RESOLVED", "已解決");
         STATUS_LABEL = Collections.unmodifiableMap(labels);
+    }
+
+    /**
+     * 狀態機：目前狀態 → 允許轉換成哪些狀態。
+     * <p>
+     * <b>目前還沒有人用</b>——工單詳情本來會把它回給前端，後來拿掉了（畫面上長按鈕用的是
+     * index.html 自己那份 TRANSITIONS）。留著是因為 PATCH /status 一定會用到：
+     * 前端的 {@code alert('非法的狀態轉換')} 只是第一道防線，擋不住直接打 API 的人，
+     * 後端非驗不可。寫那支的時候直接拿這張表來擋。
+     * <p>
+     * 規則：處理中可以去待客戶回覆或已解決；待客戶回覆可以回處理中或去已解決；
+     * 已解決只能回處理中（重啟案件），不能直接跳去待客戶回覆。
+     * <p>
+     * 用 {@code LinkedHashMap} 的理由同 {@link #STATUS_LABEL}——順序有意義，
+     * 前端按鈕就照 list 的順序排。
+     */
+    private static final Map<String, List<String>> ALLOWED_TRANSITIONS;
+    static {
+        Map<String, List<String>> transitions = new LinkedHashMap<>();
+        transitions.put("IN_PROGRESS", List.of("PENDING", "RESOLVED"));
+        transitions.put("PENDING", List.of("IN_PROGRESS", "RESOLVED"));
+        transitions.put("RESOLVED", List.of("IN_PROGRESS"));
+        ALLOWED_TRANSITIONS = Collections.unmodifiableMap(transitions);
     }
 
     /** 客服自己從「＋ 新增派件」手動建立。首字大寫是照 {@code CK_tickets_channel} 的值。 */
@@ -170,6 +197,40 @@ public class TicketService {
         }
 
         return TicketListItemResponse.from(ticket);
+    }
+
+    /**
+     * 工單詳情，對應 GET /api/tickets/{ticketNo}。點開列表某一列之後看到的那一頁。
+     * <p>
+     * 做兩件事：撈工單、撈底下的處理記錄。
+     * <p>
+     * 留言只帶客服代號、不查姓名——畫面上顯示的就是代號，見
+     * {@link TicketCommentResponse}。
+     * <p>
+     * 掛 {@code readOnly = true}：整支方法只讀不寫，這樣標之後 Hibernate 不會為了偵測變更
+     * 而保留每個 entity 的快照，資料庫那邊也能走唯讀交易。順手防呆——底下不小心改到 entity
+     * 欄位時不會真的被寫回資料庫。
+     *
+     * @param ticketNo {@code String}——網址上的工單編號，格式 TK-XXXXXX
+     * @return {@link TicketDetailResponse}——工單全欄位 + timeline
+     * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號
+     */
+    @Transactional(readOnly = true)
+    public TicketDetailResponse detail(String ticketNo) {
+        // 查不到不是程式壞掉，是使用者把單號打錯了，所以回 404 而不是讓 NPE 冒出去變 500。
+        Tickets ticket = ticketsRepository.findByTicketNo(ticketNo)
+                .orElseThrow(() -> ApiException.notFound(
+                        "TICKET_NOT_FOUND", "找不到工單：" + ticketNo));
+
+        // 留言是用 ticketId 接的（外鍵指向 tickets.ticket_id），不是 ticketNo。
+        List<TicketComments> comments = ticketCommentsRepository
+                .findByTicketIdOrderByCreatedAtAscCommentIdAsc(ticket.getTicketId());
+
+        List<TicketCommentResponse> timeline = comments.stream()
+                .map(TicketCommentResponse::from)
+                .toList();
+
+        return TicketDetailResponse.from(ticket, timeline);
     }
 
     // ------------------------------------------------------------------

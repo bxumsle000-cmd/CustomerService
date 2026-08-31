@@ -1,6 +1,7 @@
 package com.poz.CustomerService.controller;
 
 import com.poz.CustomerService.dto.CreateTicketRequest;
+import com.poz.CustomerService.dto.TicketDetailResponse;
 import com.poz.CustomerService.dto.TicketListItemResponse;
 import com.poz.CustomerService.dto.TicketPageResponse;
 import com.poz.CustomerService.service.TicketService;
@@ -68,13 +69,30 @@ public class TicketController {
     }
 
 
-    /*
-     * TODO GET /api/tickets/{ticketNo} —— 工單詳情
-     * 回單張工單的完整欄位、處理記錄 timeline，以及後端算好的 allowedTransitions。
-     * 單號不存在回 404。
+    /**
+     * 工單詳情，GET /api/tickets/{ticketNo}。點開列表某一列之後看到的那一頁。
+     * <p>
+     * 用 {@code @PathVariable} 而不是 {@code @RequestParam}：單號是「哪一張工單」的身分，
+     * 屬於資源路徑的一部分，所以放在路徑裡（{@code /api/tickets/TK-000123}），
+     * 不是放在 {@code ?} 後面當查詢條件。
+     * <p>
+     * 三種收參數的方式到這裡就都用過一輪了：{@code @RequestParam} 收網址 {@code ?} 後面的值
+     * （見 {@link #search(int, int)}）、{@code @RequestBody} 收 JSON、
+     * {@code @PathVariable} 收路徑裡 {@code {}} 的那一段。
+     * <p>
+     * 參數名 {@code ticketNo} 跟路徑上的 <code>{ticketNo}</code> 一樣，所以
+     * {@code @PathVariable} 不必再寫一次名字。兩邊取不同名字時要寫成
+     * {@code @PathVariable("ticketNo") String no}。
+     *
+     * @param ticketNo {@code String}——路徑上的工單編號，格式 TK-XXXXXX
+     * @return {@link TicketDetailResponse}——200，工單全欄位 + 處理記錄 timeline +
+     *         目前狀態可以轉換成哪些狀態。
+     *         單號不存在回 404 / {@code TICKET_NOT_FOUND}
      */
-
-
+    @GetMapping("/{ticketNo}/detail")
+    public TicketDetailResponse detail(@PathVariable String ticketNo) {
+        return ticketService.detail(ticketNo);
+    }
 
     /*
      * TODO PATCH /api/tickets/{ticketNo}/status —— 變更狀態
