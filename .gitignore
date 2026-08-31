@@ -4,3 +4,5 @@ target/
 # IntelliJ IDEA 專案設定
 .idea/
 *.iml
+
+CLAUDE.md
