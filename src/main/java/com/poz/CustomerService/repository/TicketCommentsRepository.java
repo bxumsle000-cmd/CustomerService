@@ -21,4 +21,6 @@ import java.util.List;
 @Repository
 public interface TicketCommentsRepository extends JpaRepository<TicketComments, Integer> {
     List<TicketComments> findByTicketIdOrderByCreatedAtAscCommentIdAsc(Integer ticketId);
+
+
 }

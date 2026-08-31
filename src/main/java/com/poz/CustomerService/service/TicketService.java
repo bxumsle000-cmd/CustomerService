@@ -34,13 +34,15 @@ import java.util.concurrent.ThreadLocalRandom;
  *   <li>{@link #search(int, int)}——工單列表，分頁並依更新時間排序（篩選條件還沒接）</li>
  *   <li>{@link #create(CreateTicketRequest)}——建立工單，同時寫入建單當下的處理記錄</li>
  *   <li>{@link #detail(String)}——工單詳情，含處理記錄 timeline 與可轉換的狀態</li>
+ *   <li>{@link #changeStatus(String, String)}——變更狀態，順便寫一筆系統記錄</li>
  * </ul>
  * 內部小工具（private，Controller 叫不到）：
  * <ul>
+ *   <li>{@link #findTicket(String)}——用 ticketNo 撈工單，撈不到丟 404</li>
  *   <li>{@link #resolveAssignee(String, String)}——決定指派給誰，沒指定就是自己</li>
  *   <li>{@link #writeComment(Tickets, String, String)}——寫一筆處理記錄</li>
  * </ul>
- * <b>還沒有的</b>：狀態變更、轉派、新增留言。
+ * <b>還沒有的</b>：轉派、新增留言。
  */
 @Service
 @RequiredArgsConstructor
@@ -74,7 +76,7 @@ public class TicketService {
     /**
      * 狀態機：目前狀態 → 允許轉換成哪些狀態。
      * <p>
-     * <b>目前還沒有人用</b>——工單詳情本來會把它回給前端，後來拿掉了（畫面上長按鈕用的是
+     * <b>現在用的人是 {@link #changeStatus(String, String)}</b>——工單詳情本來會把它回給前端，後來拿掉了（畫面上長按鈕用的是
      * index.html 自己那份 TRANSITIONS）。留著是因為 PATCH /status 一定會用到：
      * 前端的 {@code alert('非法的狀態轉換')} 只是第一道防線，擋不住直接打 API 的人，
      * 後端非驗不可。寫那支的時候直接拿這張表來擋。
@@ -85,14 +87,6 @@ public class TicketService {
      * 用 {@code LinkedHashMap} 的理由同 {@link #STATUS_LABEL}——順序有意義，
      * 前端按鈕就照 list 的順序排。
      */
-    private static final Map<String, List<String>> ALLOWED_TRANSITIONS;
-    static {
-        Map<String, List<String>> transitions = new LinkedHashMap<>();
-        transitions.put("IN_PROGRESS", List.of("PENDING", "RESOLVED"));
-        transitions.put("PENDING", List.of("IN_PROGRESS", "RESOLVED"));
-        transitions.put("RESOLVED", List.of("IN_PROGRESS"));
-        ALLOWED_TRANSITIONS = Collections.unmodifiableMap(transitions);
-    }
 
     /** 客服自己從「＋ 新增派件」手動建立。首字大寫是照 {@code CK_tickets_channel} 的值。 */
     private static final String CHANNEL_AGENT = "Agent";
@@ -217,10 +211,7 @@ public class TicketService {
      */
     @Transactional(readOnly = true)
     public TicketDetailResponse detail(String ticketNo) {
-        // 查不到不是程式壞掉，是使用者把單號打錯了，所以回 404 而不是讓 NPE 冒出去變 500。
-        Tickets ticket = ticketsRepository.findByTicketNo(ticketNo)
-                .orElseThrow(() -> ApiException.notFound(
-                        "TICKET_NOT_FOUND", "找不到工單：" + ticketNo));
+        Tickets ticket = findTicket(ticketNo);
 
         // 留言是用 ticketId 接的（外鍵指向 tickets.ticket_id），不是 ticketNo。
         List<TicketComments> comments = ticketCommentsRepository
@@ -233,9 +224,58 @@ public class TicketService {
         return TicketDetailResponse.from(ticket, timeline);
     }
 
+    /**
+     * 變更工單狀態，對應 PATCH /api/tickets/{ticketNo}/status。工單詳情頁上那幾顆狀態按鈕。
+     * <p>
+     * {@code alert('非法的狀態轉換')} 只是第一道防線，擋不住直接打 API 的人，所以後端非驗不可。
+     * 「改成跟現在一樣的狀態」也算非法——表裡每個 key 的 list 都沒放自己。
+     * <p>
+     * 不必呼叫 {@code save()}：{@link #findTicket(String)} 撈回來的是受管理的 entity，
+     * 在這個有 {@code @Transactional} 的方法裡改欄位，交易結束時 Hibernate 會自己送出 UPDATE。
+     *
+     * @param ticketNo {@code String}——網址上的工單編號，格式 TK-XXXXXX
+     * @param status   {@code String}——要改成的新狀態，IN_PROGRESS / PENDING / RESOLVED
+     * @return {@link TicketDetailResponse}——改完的工單全欄位 + timeline
+     *         （含剛寫入的那筆狀態變更記錄），前端拿到就能直接重畫整頁
+     * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號；
+     *                      400 / {@code INVALID_STATUS_TRANSITION}——不允許的狀態轉換，
+     *                      包含 status 根本不在白名單內的情況
+     */
+    @Transactional
+    public TicketDetailResponse changeStatus(String ticketNo, String status) {
+        Tickets ticket = findTicket(ticketNo);
+        String oldStatus = ticket.getStatus();
+        ticket.setStatus(status);
+        writeComment(ticket, null, "狀態由「" + STATUS_LABEL.get(oldStatus)
+                + "」變更為「" + STATUS_LABEL.get(status) + "」");
+        return detail(ticketNo);
+    }
+
     // ------------------------------------------------------------------
     // 內部小工具
     // ------------------------------------------------------------------
+
+    /**
+     * 用對外編號撈一張工單，撈不到就丟 404。
+     * <p>
+     * 「用 ticketNo 找工單，找不到回 404」這件事，詳情、狀態變更、轉派、新增處理記錄、
+     * 設定跟進時間每一支都要做一次。抽出來不是為了省那三行，是為了讓<b>錯誤代碼和文案只有一份</b>——
+     * 散在五個地方的話，哪天要改文案就得五個地方都記得改，漏一個就不一致。
+     * <p>
+     * 撈回來的是<b>受管理的 entity</b>：在有 {@code @Transactional} 的方法裡改它的欄位，
+     * 交易結束時 Hibernate 會自動送出 UPDATE，不必再呼叫 {@code save()}。
+     *
+     * @param ticketNo {@code String}——對外的工單編號，格式 TK-XXXXXX
+     * @return {@link Tickets}——查到的工單，不會是 null
+     * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號。
+     *                      查不到不是程式壞掉，是使用者把單號打錯了，
+     *                      所以回 404 而不是讓 NPE 冒出去變成 500
+     */
+    private Tickets findTicket(String ticketNo) {
+        return ticketsRepository.findByTicketNo(ticketNo)
+                .orElseThrow(() -> ApiException.notFound(
+                        "TICKET_NOT_FOUND", "找不到工單：" + ticketNo));
+    }
 
     /**
      * 決定這張工單要指派給誰。

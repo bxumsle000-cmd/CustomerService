@@ -1,5 +1,6 @@
 package com.poz.CustomerService.controller;
 
+import com.poz.CustomerService.dto.ChangeStatusRequest;
 import com.poz.CustomerService.dto.CreateTicketRequest;
 import com.poz.CustomerService.dto.TicketDetailResponse;
 import com.poz.CustomerService.dto.TicketListItemResponse;
@@ -99,7 +100,11 @@ public class TicketController {
      * 收新狀態，回改完的工單。
      * 非法的狀態轉換回 400。
      */
-
+    @PatchMapping("/{ticketNo}/changeStatus")
+    public  TicketDetailResponse changeStatus(@PathVariable String ticketNo,
+                                             @Valid @RequestBody ChangeStatusRequest request){
+        return  ticketService.changeStatus(ticketNo, request.status());
+    }
 
 
     /*
