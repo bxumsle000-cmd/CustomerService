@@ -10,7 +10,7 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
 /**
- * 全專案共用的例外處理，把各種例外統一轉成 docs/api.md 定義的 {@link ErrorResponse}。
+ * 全專案共用的例外處理，把各種例外統一轉成 {@link ErrorResponse}。
  * <p>
  * {@code @RestControllerAdvice} 會讓<b>所有</b> Controller 丟出的例外先經過這裡，
  * 所以每支 Controller 都不必寫 try-catch。沒有這一層的話，

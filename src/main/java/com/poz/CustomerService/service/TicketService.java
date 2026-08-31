@@ -25,18 +25,18 @@ import java.util.concurrent.ThreadLocalRandom;
 /**
  * 工單相關的 business logic。
  *
- * <h2>目前有哪些方法可用</h2>
+ * <h2>方法一覽</h2>
  * 對外開放（Controller 呼叫的）：
  * <ul>
- *   <li>{@link #create(CreateTicketRequest)} → {@link TicketListItemResponse}
- *       ——建立工單，並寫入建單當下的處理記錄</li>
+ *   <li>{@link #search(int, int)}——工單列表，分頁並依更新時間排序（篩選條件還沒接）</li>
+ *   <li>{@link #create(CreateTicketRequest)}——建立工單，同時寫入建單當下的處理記錄</li>
  * </ul>
  * 內部小工具（private，Controller 叫不到）：
  * <ul>
  *   <li>{@link #resolveAssignee(String, String)}——決定指派給誰，沒指定就是自己</li>
  *   <li>{@link #writeComment(Tickets, String, String)}——寫一筆處理記錄</li>
  * </ul>
- * <b>還沒有的</b>：列表查詢、工單詳情、狀態變更、轉派、新增留言。
+ * <b>還沒有的</b>：工單詳情、狀態變更、轉派、新增留言。
  */
 @Service
 @RequiredArgsConstructor
@@ -135,14 +135,6 @@ public class TicketService {
      */
     @Transactional
     public TicketListItemResponse create(CreateTicketRequest request) {
-        // 「必填」「主旨長度」「status 白名單」都不在這裡檢查——交給 CreateTicketRequest 的
-        // @NotBlank / @Size / @Pattern 搭配 Controller 的 @Valid。不合格的請求會被 Spring
-        // 擋在 Controller，根本進不到這裡，錯誤文案也只有 DTO 那一份，
-        // 不會兩邊各寫一句然後改到不一致。
-        //
-        // 代價寫清楚：這支方法假設呼叫端已經驗過。從 Controller 以外的地方呼叫
-        // （測試、排程、其他 Service）而且沒驗，title / category 是 null 時這裡會 NPE，
-        // status 傳白名單以外的值時 STATUS_LABEL.get(status) 會拿到 null。
         String status = request.status();
         String channel = request.channel();
 
@@ -153,16 +145,10 @@ public class TicketService {
         String assigneeId = resolveAssignee(request.assigneeId(), me);
         String description = request.description();
 
-        // ticket_no 是 NOT NULL + UNIQUE，INSERT 當下一定要給值，但 ticketId 是 IDENTITY，
-        // 要 save() 完才會知道，兩個沒辦法同時湊出來，所以先塞一個暫時亂數頂著存檔，
-        // 存完馬上用 ticketId 換成保證不重複的正式編號（見下面 ticket.setTicketNo(...)）。
         Tickets ticket = ticketsRepository.save(Tickets.builder()
                 .ticketNo(TICKET_NO_PREFIX + ThreadLocalRandom.current().nextInt(100_000, 1_000_000))
                 .title(title)
                 .customerName(request.customerName())
-                // 只有電話去頭尾空白。使用者常從別處複製貼上，多一個空白會讓
-                // 「用進線號碼查歷史工單」查不到——那是等值比對，走
-                // IX_tickets_contact_phone 這條索引，而且畫面上看起來一模一樣，很難查。
                 .contactPhone(request.contactPhone().trim())
                 .category(category)
                 .description(description)
@@ -170,13 +156,6 @@ public class TicketService {
                 .channel(channel)
                 .assigneeId(assigneeId)
                 .build());
-        // createdAt / updatedAt 不用自己填，Tickets 的 @PrePersist 會補上同一個時間，
-        // 剛好符合前端「剛建立的工單兩個時間對齊」的顯示規則（更新時間顯示為「—」）。
-
-        // 換成用 ticketId 組出來的正式編號（保證不重複，已知限制：號碼遞增，可被猜出
-        // 大概開了幾張工單；ticketId 超過 999999 時位數會頂到 ticket_no 的 NVARCHAR(10)
-        // 上限）。ticket 是這個交易裡受管理的 entity，改完欄位不用再呼叫 save()，
-        // 交易結束時 dirty checking 會自動送出 UPDATE（同 AgentService.login() 的註解）。
         ticket.setTicketNo(TICKET_NO_PREFIX + String.format("%06d", ticket.getTicketId()));
 
         // 處理記錄，順序照 index.html 的 createFromCall()

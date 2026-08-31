@@ -13,7 +13,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * 認證相關端點，對應 docs/api.md「二、認證與登入客服」。
+ * 認證相關端點：登入，以及取得目前登入的客服。
  * <p>
  * Controller 只做三件事：收參數、叫 Service、回結果。business logic 一律放
  * {@link AgentService}，這裡不寫判斷也不碰資料庫。

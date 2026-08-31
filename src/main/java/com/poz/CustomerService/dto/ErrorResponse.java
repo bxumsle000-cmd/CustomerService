@@ -1,7 +1,7 @@
 package com.poz.CustomerService.dto;
 
 /**
- * 統一的錯誤回應格式，對應 docs/api.md「一、共通約定」那一節。
+ * 全專案統一的錯誤回應格式。
  *
  * <pre>
  * { "code": "INVALID_STATUS_TRANSITION", "message": "無法從「已解決」變更為「待客戶回覆」" }

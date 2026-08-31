@@ -108,7 +108,7 @@ public class AgentService {
             throw invalidCredentials();
         }
 
-        // docs/api.md 要求：登入成功要把狀態重設為 ONLINE，
+        // 規格要求：登入成功要把狀態重設為 ONLINE，
         // 否則上次下班前留下的「午休」會被帶到今天。
         //
         // 不必呼叫 save()：方法有 @Transactional、agent 是受管理的實體，

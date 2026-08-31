@@ -98,7 +98,7 @@ GO
 ALTER TABLE [dbo].[tickets] CHECK CONSTRAINT [CK_tickets_channel]
 GO
 
--- 索引：對應 docs/api.md 的 GET /api/tickets 查詢條件
+-- 索引：對應 GET /api/tickets 的查詢條件
 -- 首頁列表預設就是「我的工單、依建立時間新到舊」，所以做成複合索引。
 CREATE NONCLUSTERED INDEX [IX_tickets_assignee_created]
     ON [dbo].[tickets] ([assignee_id] ASC, [created_at] DESC)

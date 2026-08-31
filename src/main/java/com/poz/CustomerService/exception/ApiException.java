@@ -4,7 +4,7 @@ import org.springframework.http.HttpStatus;
 
 /**
  * Service 層統一往外丟的例外，之後由 Controller 的 @RestControllerAdvice
- * 接住並轉成 docs/api.md 定義的 ErrorResponse：
+ * 接住並轉成統一的 ErrorResponse：
  *
  * <pre>
  * { "code": "INVALID_STATUS_TRANSITION", "message": "無法從「已解決」變更為「待客戶回覆」" }

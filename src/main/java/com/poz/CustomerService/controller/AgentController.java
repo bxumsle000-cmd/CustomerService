@@ -14,7 +14,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.List;
 
 /**
- * 客服相關端點，對應 docs/api.md「七、下拉選單 / 驗證」與「二」的狀態切換那一段。
+ * 客服相關端點：轉派時要用的客服清單，以及右上角的工作狀態切換。
  */
 @RestController
 @RequestMapping("/api/agents")
