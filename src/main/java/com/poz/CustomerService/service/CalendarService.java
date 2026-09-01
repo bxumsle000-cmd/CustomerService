@@ -1,6 +1,6 @@
 package com.poz.CustomerService.service;
 
-import com.poz.CustomerService.dto.calendar.CalendarItemResponse;
+import com.poz.CustomerService.dto.calendar.CalendarEventResponse;
 import com.poz.CustomerService.dto.calendar.CalendarMonthResponse;
 import com.poz.CustomerService.entity.TicketComments;
 import com.poz.CustomerService.entity.Tickets;
@@ -99,7 +99,7 @@ public class CalendarService {
      * @param year  {@code int}——西元年，{@value #MIN_YEAR} 到 {@value #MAX_YEAR}
      * @param month {@code int}——月份，<b>1 到 12</b>
      * @return {@link CalendarMonthResponse}——這個月的所有回電安排，依時間排序。
-     *         這個月沒排任何事情時 items 是空 list，<b>不是 404</b>
+     *         這個月沒排任何事情時 events 是空 list，<b>不是 404</b>
      *         （「這個月沒事」是正常結果，不是錯誤）
      * @throws ApiException 400 / {@code VALIDATION_ERROR}——月份不在 1 到 12，
      *                      或年份超出可查詢範圍
@@ -149,43 +149,29 @@ public class CalendarService {
      * @param ticketNo   {@code String}——網址上的工單編號，格式 TK-XXXXXX
      * @param followUpAt {@code LocalDateTime}——要排定的回電時間；<b>傳 null 代表取消排定</b>。
      *                   秒以下的位數會被截掉，因為欄位只存到秒
-     * @return {@link CalendarItemResponse}——改完的那一格事件。
+     * @return {@link CalendarEventResponse}——改完的那一格事件。
      *         取消排定時 {@code followUpAt} 會是 null，前端據此把該格從畫面上移除
      * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號
      */
     @Transactional
-    public CalendarItemResponse updateFollowUp(String ticketNo, LocalDateTime followUpAt) {
+    public CalendarEventResponse updateFollowUp(String ticketNo, LocalDateTime followUpAt) {
         Tickets ticket = findTicket(ticketNo);
 
-        // 欄位是 DATETIME2(0)、只存到秒，先自己截掉，
-        // 才不會發生「存進去 14:00:00、手上這個卻是 14:00:00.123，兩者不相等」的怪事。
-        LocalDateTime newValue = (followUpAt == null) ? null : followUpAt.withNano(0);
-        LocalDateTime oldValue = ticket.getFollowUpAt();
-
-        // 前後一樣就什麼都不做：使用者在行事曆上把事件拖了一圈又放回原位，
-        // 不該在 timeline 上留下一筆雜訊。
-        // 用 Objects.equals 而不是直接 oldValue.equals(...)：兩邊都可能是 null
-        //（本來就沒排、現在也沒排），直接呼叫會 NPE。
-        if (Objects.equals(oldValue, newValue)) {
-            return CalendarItemResponse.from(ticket);
+        if (Objects.equals(ticket.getFollowUpAt(), followUpAt)) {
+            return CalendarEventResponse.from(ticket);
         }
 
-        ticket.setFollowUpAt(newValue);
+        ticket.setFollowUpAt(followUpAt);
 
         String me = currentAgentProvider.currentAgentId();
-        if (newValue == null) {
-            writeComment(ticket, me, "取消排定的回電時間（原為 "
-                    + oldValue.format(FOLLOW_UP_TEXT_FORMAT) + "）");
-        } else if (oldValue == null) {
-            writeComment(ticket, me, "排定回電時間 "
-                    + newValue.format(FOLLOW_UP_TEXT_FORMAT));
+        if (followUpAt == null) {
+            writeComment(ticket, me, "取消排定的回電時間");
         } else {
-            writeComment(ticket, me, "回電時間由 "
-                    + oldValue.format(FOLLOW_UP_TEXT_FORMAT) + " 改為 "
-                    + newValue.format(FOLLOW_UP_TEXT_FORMAT));
+            writeComment(ticket, me, "排定回電時間 "
+                    + followUpAt.format(FOLLOW_UP_TEXT_FORMAT));
         }
 
-        return CalendarItemResponse.from(ticket);
+        return CalendarEventResponse.from(ticket);
     }
 
     // ------------------------------------------------------------------

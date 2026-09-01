@@ -20,7 +20,7 @@ import java.time.LocalDateTime;
  * @param followUpAt   {@code LocalDateTime}——排定的回電時間。
  *                     <b>在這個 DTO 裡不會是 null</b>——會被查出來的前提就是它有值
  */
-public record CalendarItemResponse(
+public record CalendarEventResponse(
         String ticketNo,
         String title,
         String customerName,
@@ -35,10 +35,10 @@ public record CalendarItemResponse(
      * 五個欄位全部來自 {@link Tickets} 這一張表，不需要 join，所以這支方法自己就能完成轉換。
      *
      * @param ticket {@link Tickets}——來源 entity，不可為 null（查不到請在 Service 就丟 404）
-     * @return {@link CalendarItemResponse}——行事曆用得到的五個欄位
+     * @return {@link CalendarEventResponse}——行事曆用得到的五個欄位
      */
-    public static CalendarItemResponse from(Tickets ticket) {
-        return new CalendarItemResponse(
+    public static CalendarEventResponse from(Tickets ticket) {
+        return new CalendarEventResponse(
                 ticket.getTicketNo(),
                 ticket.getTitle(),
                 ticket.getCustomerName(),

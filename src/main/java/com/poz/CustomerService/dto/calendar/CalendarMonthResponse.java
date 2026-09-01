@@ -12,16 +12,16 @@ import java.util.List;
  * 沒有這兩個欄位的話，慢回來的九月資料會蓋掉已經畫好的十月，
  * 而且畫面上不會有任何錯誤——只是月份標題寫十月、格子裡卻是九月的事件。
  *
- * @param year  {@code int}——西元年，例如 2026
- * @param month {@code int}——月份，<b>1 到 12</b>（不是 0 到 11，跟 JavaScript 的 Date 不一樣，
- *              前端接的時候要注意）
- * @param items {@code List<CalendarItemResponse>}——這個月所有排了回電時間的工單，
- *              已依回電時間由早到晚排序。這個月沒有任何安排時是空 list，不會是 null
+ * @param year   {@code int}——西元年，例如 2026
+ * @param month  {@code int}——月份，<b>1 到 12</b>（不是 0 到 11，跟 JavaScript 的 Date 不一樣，
+ *               前端接的時候要注意）
+ * @param events {@code List<CalendarEventResponse>}——這個月所有排了回電時間的工單，
+ *               已依回電時間由早到晚排序。這個月沒有任何安排時是空 list，不會是 null
  */
 public record CalendarMonthResponse(
         int year,
         int month,
-        List<CalendarItemResponse> items
+        List<CalendarEventResponse> events
 ) {
 
     /**
@@ -34,14 +34,14 @@ public record CalendarMonthResponse(
      * @param year    {@code int}——西元年，原樣帶回
      * @param month   {@code int}——月份 1 到 12，原樣帶回
      * @param tickets {@code List<Tickets>}——repository 查回來的工單，已排序，不可為 null
-     * @return {@link CalendarMonthResponse}——items 已轉成 DTO
+     * @return {@link CalendarMonthResponse}——events 已轉成 DTO
      */
     public static CalendarMonthResponse from(int year, int month, List<Tickets> tickets) {
         return new CalendarMonthResponse(
                 year,
                 month,
                 tickets.stream()
-                        .map(CalendarItemResponse::from)
+                        .map(CalendarEventResponse::from)
                         .toList()
         );
     }
