@@ -5,10 +5,12 @@ import com.poz.CustomerService.dto.ticket.TicketCommentResponse;
 import com.poz.CustomerService.dto.ticket.TicketDetailResponse;
 import com.poz.CustomerService.dto.ticket.TicketListItemResponse;
 import com.poz.CustomerService.dto.ticket.TicketPageResponse;
+import com.poz.CustomerService.entity.FollowUps;
 import com.poz.CustomerService.entity.TicketComments;
 import com.poz.CustomerService.entity.Tickets;
 import com.poz.CustomerService.exception.ApiException;
 import com.poz.CustomerService.repository.AgentsRepository;
+import com.poz.CustomerService.repository.FollowUpsRepository;
 import com.poz.CustomerService.repository.TicketCommentsRepository;
 import com.poz.CustomerService.repository.TicketsRepository;
 import com.poz.CustomerService.security.CurrentAgentProvider;
@@ -19,6 +21,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -50,6 +53,7 @@ public class TicketService {
     private final TicketsRepository ticketsRepository;
     private final TicketCommentsRepository ticketCommentsRepository;
     private final AgentsRepository agentsRepository;
+    private final FollowUpsRepository followUpsRepository;
     private final CurrentAgentProvider currentAgentProvider;
 
     // ------------------------------------------------------------------
@@ -219,7 +223,14 @@ public class TicketService {
                 .map(TicketCommentResponse::from)
                 .toList();
 
-        return TicketDetailResponse.from(ticket, timeline);
+        // 回電時間改成從 follow_ups 拿，而且只拿「我自己」排的那一筆——
+        // 它是私人行程，別的客服對同一張單排的回電不該出現在這一頁上。
+        LocalDateTime myFollowUpAt = followUpsRepository
+                .findByAgentIdAndTicketId(currentAgentProvider.currentAgentId(), ticket.getTicketId())
+                .map(FollowUps::getFollowUpAt)
+                .orElse(null);
+
+        return TicketDetailResponse.from(ticket, timeline, myFollowUpAt);
     }
 
     /**

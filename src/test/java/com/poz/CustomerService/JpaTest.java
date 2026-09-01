@@ -76,7 +76,7 @@ class JpaTest {
     // 好處是整段是一個運算式：物件要嘛完整建好、要嘛還不存在，
     // 不會有「setter 才設到一半」的半成品被別的程式碼看到。
     //
-    // 沒填的欄位（ticketId / followUpAt / createdAt / updatedAt）會是 null，
+    // 沒填的欄位（ticketId / createdAt / updatedAt）會是 null，
     // 這是對的——ticketId 由資料庫 IDENTITY 發號，時間戳由 @PrePersist 補。
     @Test
     void insertTicket() {

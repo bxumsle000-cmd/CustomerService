@@ -23,7 +23,9 @@ import java.util.List;
  * @param customerName {@code String}——客戶姓名，<b>可為 null</b>
  * @param contactPhone {@code String}——客戶聯絡電話，<b>可為 null</b>
  * @param assigneeId   {@code String}——負責客服的代號
- * @param followUpAt   {@code LocalDateTime}——行事曆上的跟進時間，<b>可為 null</b>（沒排就是 null）
+ * @param followUpAt   {@code LocalDateTime}——<b>目前登入的這個客服</b>對這張工單排定的回電時間，
+ *                     來自 {@code follow_ups} 而不是 tickets，<b>可為 null</b>（自己沒排就是 null）。
+ *                     這是私人資料：別的客服排的回電<b>不會</b>出現在這裡
  * @param createdAt    {@code LocalDateTime}——建立時間
  * @param updatedAt    {@code LocalDateTime}——最後更新時間。等於 createdAt 代表從沒被動過
  * @param comments     {@code List<TicketCommentResponse>}——處理記錄，<b>由舊到新</b>。
@@ -46,21 +48,25 @@ public record TicketDetailResponse(
 ) {
 
     /**
-     * 從 entity 加上查好的處理記錄，組成詳情。
+     * 從 entity 加上查好的處理記錄與回電時間，組成詳情。
      * <p>
-     * 前十二個欄位照抄 {@link Tickets}，timeline 這支方法生不出來——要查另一張表，
-     * 所以由 Service 準備好傳進來。
+     * 十一個欄位照抄 {@link Tickets}；{@code comments} 和 {@code followUpAt} 這支方法生不出來
+     * ——兩個都要查別張表（ticket_comments / follow_ups），所以由 Service 準備好傳進來。
      * <p>
      * {@code comments} 用 {@link List#copyOf} 複製一份存起來。record 只保證「欄位不能被換掉」，
      * 不保證「欄位指到的 list 不能被改」——直接存傳進來的 list，呼叫端之後對它 add、remove，
      * 這個 DTO 裡的內容會跟著變。{@code copyOf} 出來的是唯讀副本，從外面改不動。
      *
      * @param ticket   {@link Tickets}——來源 entity，不可為 null（查不到請在 Service 就丟 404）
-     * @param comments {@code List<TicketCommentResponse>}——已排序的 timeline，
-     *                 不可為 null（沒有就傳空 list）
+     * @param comments   {@code List<TicketCommentResponse>}——已排序的 timeline，
+     *                   不可為 null（沒有就傳空 list）
+     * @param followUpAt {@code LocalDateTime}——目前登入的客服對這張單排定的回電時間，
+     *                   沒排就傳 null
      * @return {@link TicketDetailResponse}——詳情頁需要的全部內容
      */
-    public static TicketDetailResponse from(Tickets ticket, List<TicketCommentResponse> comments) {
+    public static TicketDetailResponse from(Tickets ticket,
+                                            List<TicketCommentResponse> comments,
+                                            LocalDateTime followUpAt) {
         return new TicketDetailResponse(
                 ticket.getTicketNo(),
                 ticket.getTitle(),
@@ -71,7 +77,7 @@ public record TicketDetailResponse(
                 ticket.getCustomerName(),
                 ticket.getContactPhone(),
                 ticket.getAssigneeId(),
-                ticket.getFollowUpAt(),
+                followUpAt,
                 ticket.getCreatedAt(),
                 ticket.getUpdatedAt(),
                 List.copyOf(comments)

@@ -2,10 +2,10 @@ package com.poz.CustomerService.service;
 
 import com.poz.CustomerService.dto.calendar.CalendarEventResponse;
 import com.poz.CustomerService.dto.calendar.CalendarMonthResponse;
-import com.poz.CustomerService.entity.TicketComments;
+import com.poz.CustomerService.entity.FollowUps;
 import com.poz.CustomerService.entity.Tickets;
 import com.poz.CustomerService.exception.ApiException;
-import com.poz.CustomerService.repository.TicketCommentsRepository;
+import com.poz.CustomerService.repository.FollowUpsRepository;
 import com.poz.CustomerService.repository.TicketsRepository;
 import com.poz.CustomerService.security.CurrentAgentProvider;
 import lombok.RequiredArgsConstructor;
@@ -14,63 +14,60 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Objects;
+import java.util.Map;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * 行事曆相關的 business logic。
  *
  * <h2>行事曆上的事件是什麼</h2>
- * 就是工單的 {@code follow_up_at}（排定的回電／跟進時間）。這裡<b>沒有</b>獨立的事件資料表：
- * 每一格事件背後都是一張工單，點下去就回到工單詳情。
- * 之後若要放請假、教育訓練那種跟工單無關的事件，得另開一張表，那是另一個題目。
+ * 一筆 {@link FollowUps}：「<b>我</b>打算在<b>某個時間</b>跟進<b>某張工單</b>，順便寫給自己一句備註」。
+ * 格子上要顯示的單號、主旨、狀態則是查 {@link Tickets} 拿現在的值，沒有複製一份存起來
+ * （理由見 {@link CalendarEventResponse}）。
  *
- * <h2>回電時間為什麼不在建單時填</h2>
- * 建單是在「記錄已經發生的事」，排回電是在「安排未來的事」，時機常常不同步——
- * 通話當下未必知道要幾號回電。所以 {@code CreateTicketRequest} 裡沒有這個欄位，
- * 唯一能設定它的入口就是這支 Service。
+ * <h2>「我的」行事曆，不接受指定看誰的</h2>
+ * 這支 Service 每一支方法都用 {@link CurrentAgentProvider#currentAgentId()} 決定主人，
+ * 不吃前端傳來的 agentId——不然只要改個網址參數就能看別人的行程和私人備註。
+ * 之後真要做「主管看整組」的功能，那是另一支方法加上權限判斷，不是在這裡加參數。
+ *
+ * <h2>排回電不寫進工單的處理記錄</h2>
+ * 回電安排是個人行程，不是工單的公開歷程，所以排定／改期／取消都<b>不會</b>在
+ * {@code ticket_comments} 留下任何東西。備註也只存在 {@code follow_ups.note}，
+ * 只有主人看得到。
+ * <p>
+ * （舊版本每次改期都會往 timeline 寫一句「排定回電時間 ...」，已經拿掉。）
  *
  * <h2>方法一覽</h2>
  * 對外開放（Controller 呼叫的）：
  * <ul>
  *   <li>{@link #monthlyFollowUps(int, int)}——查自己某個月排定的所有回電</li>
- *   <li>{@link #updateFollowUp(String, LocalDateTime)}——設定或取消某張工單的回電時間</li>
+ *   <li>{@link #updateFollowUp(String, LocalDateTime, String)}——排定或改期，沒排過就新增</li>
+ *   <li>{@link #deleteFollowUp(String)}——取消排定</li>
  * </ul>
  * 內部小工具（private，Controller 叫不到）：
  * <ul>
  *   <li>{@link #findTicket(String)}——用 ticketNo 撈工單，撈不到丟 404</li>
- *   <li>{@link #writeComment(Tickets, String, String)}——寫一筆處理記錄</li>
  * </ul>
  *
  * <h2>為什麼不呼叫 TicketService</h2>
- * 這支 Service 動到的是 tickets 資料表，看起來很像該去借 {@code TicketService} 的方法用，
- * 但那兩支 private 小工具借不到，而讓 Service 互相呼叫會讓交易邊界和相依方向都變複雜
- * （誰包誰的交易？之後 TicketService 反過來要用行事曆的東西怎麼辦？）。
- * 這裡照專案現有的作法直接用 repository，代價是 {@link #findTicket} 和
- * {@link #writeComment} 跟 {@code TicketService} 各有一份幾乎一樣的實作——
- * 加起來不到十行，比綁死兩支 Service 划算。真的長出第三份時再抽成共用元件。
+ * 讓 Service 互相呼叫會讓交易邊界和相依方向都變複雜（誰包誰的交易？之後 TicketService
+ * 反過來要用行事曆的東西怎麼辦？）。這裡照專案現有的作法直接用 repository，
+ * 代價是 {@link #findTicket} 跟 {@code TicketService} 各有一份幾乎一樣的實作——
+ * 四行，比綁死兩支 Service 划算。真的長出第三份時再抽成共用元件。
  */
 @Service
 @RequiredArgsConstructor
 public class CalendarService {
 
     private final TicketsRepository ticketsRepository;
-    private final TicketCommentsRepository ticketCommentsRepository;
+    private final FollowUpsRepository followUpsRepository;
     private final CurrentAgentProvider currentAgentProvider;
 
     // ------------------------------------------------------------------
     // 常數
     // ------------------------------------------------------------------
-
-    /**
-     * 處理記錄裡顯示回電時間用的格式，例如「2026-09-05 14:00」。
-     * <p>
-     * 只寫到分：回電是排給人看的行程，秒沒有意義，寫出來反而難讀。
-     * 這只影響 timeline 上那句話長什麼樣，不影響存進資料庫的值。
-     */
-    private static final DateTimeFormatter FOLLOW_UP_TEXT_FORMAT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     /**
      * 可以查詢的年份下限。純粹擋離譜的輸入（例如網址被亂改成 year=0），
@@ -82,6 +79,16 @@ public class CalendarService {
     /** 可以查詢的年份上限，用意同 {@link #MIN_YEAR}。 */
     private static final int MAX_YEAR = 2050;
 
+    /**
+     * 個人備註的長度上限，必須跟 {@code follow_ups.note} 的 NVARCHAR(200) 一致。
+     * <p>
+     * 在這裡擋是因為目前還沒有 Controller 和 request DTO，Service 就是最外層。
+     * 之後補上 request DTO 時，這個數字要一起寫成 {@code @Size(max = 200)}——
+     * 作法同 {@code tickets.title} 的 NVARCHAR(50) 對應 {@code @Size(max = 50)}。
+     * 少了這道檢查，超長的備註會直接撞資料庫的欄位長度，變成使用者看不懂的 500。
+     */
+    private static final int NOTE_MAX_LENGTH = 200;
+
     // ------------------------------------------------------------------
     // 對外的方法
     // ------------------------------------------------------------------
@@ -89,12 +96,17 @@ public class CalendarService {
     /**
      * 查<b>自己</b>某個月排定的所有回電，對應 GET /api/calendar。行事曆的月檢視。
      * <p>
-     * 「自己」是指 {@link CurrentAgentProvider#currentAgentId()} 回傳的那個人，
-     * 不接受前端指定要看誰的行事曆——不然只要改個網址參數就能看別人的行程。
-     * 之後真要做「主管看整組」的功能，那是另一支方法加上權限判斷，不是在這裡加參數。
-     * <p>
      * 掛 {@code readOnly = true}：整支方法只讀不寫，Hibernate 就不必為了偵測變更
      * 而保留每個 entity 的快照。
+     *
+     * <h3>為什麼是兩次查詢</h3>
+     * 一格事件的內容橫跨 follow_ups 和 tickets 兩張表，所以：
+     * <ol>
+     *   <li>先查這個月「我的」安排（吃 {@code IX_follow_ups_agent_time} 索引）</li>
+     *   <li>再用一次 {@code findAllById} 把這批安排指到的工單<b>一次</b>撈回來</li>
+     * </ol>
+     * 固定兩次，跟這個月有幾筆安排無關。若改成邊跑邊查工單，三十筆安排就會發三十一次
+     * 查詢（N+1）。
      *
      * @param year  {@code int}——西元年，{@value #MIN_YEAR} 到 {@value #MAX_YEAR}
      * @param month {@code int}——月份，<b>1 到 12</b>
@@ -123,55 +135,115 @@ public class CalendarService {
 
         String me = currentAgentProvider.currentAgentId();
 
-        List<Tickets> tickets = ticketsRepository
-                .findByAssigneeIdAndFollowUpAtGreaterThanEqualAndFollowUpAtLessThanOrderByFollowUpAtAsc(
+        List<FollowUps> followUps = followUpsRepository
+                .findByAgentIdAndFollowUpAtGreaterThanEqualAndFollowUpAtLessThanOrderByFollowUpAtAscFollowUpIdAsc(
                         me, start, end);
 
-        return CalendarMonthResponse.from(year, month, tickets);
+        // 這個月沒排任何事情就到此為止：再發一次 WHERE ticket_id IN (...) 沒有意義。
+        if (followUps.isEmpty()) {
+            return CalendarMonthResponse.from(year, month, followUps, Map.of());
+        }
+
+        // distinct()：目前 UQ_follow_ups_agent_ticket 保證同一人對同一單只會有一筆，
+        // 所以其實不會重複；哪天為了「一張單排多次」拿掉那條約束，這裡不必跟著改。
+        List<Integer> ticketIds = followUps.stream()
+                .map(FollowUps::getTicketId)
+                .distinct()
+                .toList();
+
+        Map<Integer, Tickets> ticketsById = ticketsRepository.findAllById(ticketIds).stream()
+                .collect(Collectors.toMap(Tickets::getTicketId, Function.identity()));
+
+        return CalendarMonthResponse.from(year, month, followUps, ticketsById);
     }
 
     /**
-     * 設定或取消某張工單的回電時間，對應 PATCH /api/calendar/{ticketNo}/followUp。
+     * 排定或修改<b>自己</b>對某張工單的回電時間，對應 PATCH /api/calendar/{ticketNo}/followUp。
      * <p>
-     * 傳 {@code null} 代表<b>取消</b>排定，這是合法操作，不是漏填。
+     * 沒排過就新增一筆、排過就改那一筆（upsert）。判斷依據是
+     * {@code (agent_id, ticket_id)} 這個組合，資料庫也有
+     * {@code UQ_follow_ups_agent_ticket} 這條唯一約束擋著，
+     * 所以「同一張單在我的行事曆上出現兩次」不可能發生。
      * <p>
-     * 改完會在工單的 timeline 上留一筆記錄，掛在<b>操作的人</b>名下而不是系統名下——
-     * 「誰把客戶的回電時間往後挪了」是之後追進度時會想知道的事。
-     * （{@code TicketService.changeStatus()} 的狀態變更掛系統，是因為它也會在建單時
-     * 自動發生、當下沒有「某人手動做了這件事」可言，跟這裡情況不同。）
-     * <p>
-     * 不必呼叫 {@code save()}：{@link #findTicket(String)} 撈回來的是受管理的 entity，
-     * 在這個有 {@code @Transactional} 的方法裡改欄位，交易結束時 Hibernate 會自己送出 UPDATE。
+     * 動到的只有<b>自己</b>那一筆：同一張工單如果別的客服也排了回電，他那筆不受影響。
      * <p>
      * <b>刻意不擋「時間在過去」</b>：客服可能是事後補登昨天已經打過的回電，
      * 擋下來只會逼使用者去改系統時間或亂填。
      *
      * @param ticketNo   {@code String}——網址上的工單編號，格式 TK-XXXXXX
-     * @param followUpAt {@code LocalDateTime}——要排定的回電時間；<b>傳 null 代表取消排定</b>。
+     * @param followUpAt {@code LocalDateTime}——要排定的回電時間，<b>不可為 null</b>
+     *                   （取消排定請改用 {@link #deleteFollowUp(String)}）。
      *                   秒以下的位數會被截掉，因為欄位只存到秒
-     * @return {@link CalendarEventResponse}——改完的那一格事件。
-     *         取消排定時 {@code followUpAt} 會是 null，前端據此把該格從畫面上移除
-     * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號
+     * @param note       {@code String}——個人備註，<b>可為 null</b>；
+     *                   只有空白字元也會被當成沒寫，存成 null
+     * @return {@link CalendarEventResponse}——排好的那一格事件
+     * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號；
+     *                      400 / {@code VALIDATION_ERROR}——沒給回電時間，
+     *                      或備註超過 {@value #NOTE_MAX_LENGTH} 個字
      */
     @Transactional
-    public CalendarEventResponse updateFollowUp(String ticketNo, LocalDateTime followUpAt) {
-        Tickets ticket = findTicket(ticketNo);
-
-        if (Objects.equals(ticket.getFollowUpAt(), followUpAt)) {
-            return CalendarEventResponse.from(ticket);
-        }
-
-        ticket.setFollowUpAt(followUpAt);
-
-        String me = currentAgentProvider.currentAgentId();
+    public CalendarEventResponse updateFollowUp(String ticketNo, LocalDateTime followUpAt, String note) {
+        // follow_up_at 在資料庫是 NOT NULL：沒有時間就不成其為一筆行事曆安排。
+        // 舊版本用「傳 null 代表取消」，改用獨立的刪除方法之後那個特殊規則就不需要了。
         if (followUpAt == null) {
-            writeComment(ticket, me, "取消排定的回電時間");
-        } else {
-            writeComment(ticket, me, "排定回電時間 "
-                    + followUpAt.format(FOLLOW_UP_TEXT_FORMAT));
+            throw ApiException.badRequest("VALIDATION_ERROR",
+                    "回電時間不可為空；要取消排定請改用取消的 API");
         }
 
-        return CalendarEventResponse.from(ticket);
+        // 前端把備註清空時送過來的是空字串而不是 null，兩種都當成「沒寫備註」，
+        // 統一存成 null，之後查出來才不必分辨空字串和 null 哪個代表沒寫。
+        String cleanNote = (note == null || note.isBlank()) ? null : note.trim();
+        if (cleanNote != null && cleanNote.length() > NOTE_MAX_LENGTH) {
+            throw ApiException.badRequest("VALIDATION_ERROR",
+                    "備註不可超過 " + NOTE_MAX_LENGTH + " 個字");
+        }
+
+        Tickets ticket = findTicket(ticketNo);
+        String me = currentAgentProvider.currentAgentId();
+        // 欄位只存到秒，先自己截掉，回傳給前端的物件才會跟資料庫裡的值一致。
+        LocalDateTime at = followUpAt.withNano(0);
+
+        FollowUps followUp = followUpsRepository
+                .findByAgentIdAndTicketId(me, ticket.getTicketId())
+                .orElse(null);
+
+        if (followUp == null) {
+            followUp = followUpsRepository.save(FollowUps.builder()
+                    .agentId(me)
+                    .ticketId(ticket.getTicketId())
+                    .followUpAt(at)
+                    .note(cleanNote)
+                    .build());
+        } else {
+            // 不必呼叫 save()：撈回來的是受管理的 entity，在這個有 @Transactional 的
+            // 方法裡改欄位，交易結束時 Hibernate 會自己送出 UPDATE。
+            followUp.setFollowUpAt(at);
+            followUp.setNote(cleanNote);
+        }
+
+        return CalendarEventResponse.from(followUp, ticket);
+    }
+
+    /**
+     * 取消<b>自己</b>對某張工單的回電排定，把那一列刪掉。
+     * <p>
+     * <b>沒排過也算成功</b>，不丟 404：使用者要的是「這張單不要出現在我的行事曆上」，
+     * 本來就沒排的話那個狀態已經達成了。這樣前端連點兩次取消也不會跳錯誤，
+     * 重送一次請求同樣安全（冪等）。
+     * <p>
+     * 只刪自己那一筆，別的客服對同一張工單的安排不受影響。
+     *
+     * @param ticketNo {@code String}——網址上的工單編號，格式 TK-XXXXXX
+     * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號。
+     *                      工單不存在跟「工單存在但沒排回電」是兩件事，前者仍然是錯誤
+     */
+    @Transactional
+    public void deleteFollowUp(String ticketNo) {
+        Tickets ticket = findTicket(ticketNo);
+        String me = currentAgentProvider.currentAgentId();
+
+        followUpsRepository.findByAgentIdAndTicketId(me, ticket.getTicketId())
+                .ifPresent(followUpsRepository::delete);
     }
 
     // ------------------------------------------------------------------
@@ -192,22 +264,5 @@ public class CalendarService {
         return ticketsRepository.findByTicketNo(ticketNo)
                 .orElseThrow(() -> ApiException.notFound(
                         "TICKET_NOT_FOUND", "找不到工單：" + ticketNo));
-    }
-
-    /**
-     * 寫一筆處理記錄。內容與 {@code TicketService.writeComment()} 相同。
-     *
-     * @param ticket  {@link Tickets}——已經存在於資料庫的工單，這裡要拿它的 ticketId
-     * @param agentId {@code String}——留言者的客服代號；傳 null 代表系統事件。
-     *                行事曆這邊一律傳實際操作的人，不傳 null
-     * @param content {@code String}——記錄內容，不可為 null
-     */
-    private void writeComment(Tickets ticket, String agentId, String content) {
-        ticketCommentsRepository.save(TicketComments.builder()
-                .ticketId(ticket.getTicketId())
-                .agentId(agentId)
-                .content(content)
-                .build());
-        // createdAt 由 TicketComments 的 @PrePersist 補。
     }
 }

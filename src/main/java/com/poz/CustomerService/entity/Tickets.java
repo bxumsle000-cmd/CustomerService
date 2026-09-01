@@ -16,8 +16,7 @@ import java.time.LocalDateTime;
  * <h2>建立一筆新工單要填什麼</h2>
  * <ul>
  *   <li><b>必填</b>：{@code title}、{@code category}、{@code channel}、{@code assigneeId}</li>
- *   <li><b>可留空</b>：{@code customerName}、{@code contactPhone}、
- *       {@code description}、{@code followUpAt}</li>
+ *   <li><b>可留空</b>：{@code customerName}、{@code contactPhone}、{@code description}</li>
  *   <li><b>不要自己填</b>：{@code ticketId}（資料庫發號）、{@code ticketNo}（資料庫算出來的）、
  *       {@code status}（自動補 IN_PROGRESS）、{@code createdAt} / {@code updatedAt}（callback 維護）</li>
  * </ul>
@@ -31,6 +30,14 @@ import java.time.LocalDateTime;
  * </pre>
  * 修改<b>不要</b>用 builder：沒填的欄位是 null，拿去 {@code save()} 會整筆覆蓋回資料庫。
  * 要改就先 {@code findById} 撈出來再 setter。
+ * <p>
+ * <h2>排定的回電時間不在這裡</h2>
+ * 以前這裡有一個 {@code followUpAt} 欄位，已經搬到 {@link FollowUps}。
+ * 理由是那筆資料的主人是<b>客服</b>而不是工單：工單轉派給別人時，
+ * 原本那個人排的回電不該跟著換人，個人備註更不該跟著送到別人眼前。
+ * <p>
+ * 資料庫的 {@code tickets.follow_up_at} 欄位目前<b>還在</b>（要等 V4 migration 才 DROP），
+ * 但 Java 這邊已經不再對映它，所以從現在起那個欄位不會再被讀、也不會再被寫。
  * <p>
  * 欄位命名規則同 {@link Agents}：Java 用 camelCase，資料庫用 snake_case，靠 {@code @Column} 對接。
  */
@@ -127,13 +134,6 @@ public class Tickets {
      */
     @Column(name = "assignee_id")
     private String assigneeId;
-
-    /**
-     * 排定的跟進／回電時間，行事曆用。
-     * {@code tickets.follow_up_at}，DATETIME2(0)，<b>可為 null</b>（沒排跟進就是 null）。
-     */
-    @Column(name = "follow_up_at")
-    private LocalDateTime followUpAt;
 
     /**
      * 建立時間。{@code tickets.created_at}，NOT NULL。
