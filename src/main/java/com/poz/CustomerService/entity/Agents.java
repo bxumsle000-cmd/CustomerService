@@ -18,7 +18,7 @@ import java.time.LocalDateTime;
  *   <li><b>不要自己填</b>：{@code status}（自動補 ONLINE）、
  *       {@code createdAt} / {@code updatedAt}（callback 維護）</li>
  * </ul>
- * 要回給前端時一律轉成 {@link com.poz.CustomerService.dto.AgentResponse}，
+ * 要回給前端時一律轉成 {@link com.poz.CustomerService.dto.agent.AgentResponse}，
  * 它只帶 agentId / name / status 出去，不含密碼雜湊。
  *
  * <h2>新增用 builder，修改用 setter</h2>
@@ -66,7 +66,7 @@ public class Agents {
      * 密碼的 BCrypt 雜湊值。{@code agents.password_hash}。
      * <p>
      * <b>不可外洩</b>，要回給前端請改用
-     * {@link com.poz.CustomerService.dto.AgentResponse}。
+     * {@link com.poz.CustomerService.dto.agent.AgentResponse}。
      * 驗密碼要用 {@code PasswordEncoder.matches(明文, 這個值)}，
      * 不能自己算一次雜湊再比字串——BCrypt 每次的鹽不同，同一個密碼算兩次結果不一樣。
      */

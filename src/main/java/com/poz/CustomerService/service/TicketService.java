@@ -1,10 +1,10 @@
 package com.poz.CustomerService.service;
 
-import com.poz.CustomerService.dto.CreateTicketRequest;
-import com.poz.CustomerService.dto.TicketCommentResponse;
-import com.poz.CustomerService.dto.TicketDetailResponse;
-import com.poz.CustomerService.dto.TicketListItemResponse;
-import com.poz.CustomerService.dto.TicketPageResponse;
+import com.poz.CustomerService.dto.ticket.CreateTicketRequest;
+import com.poz.CustomerService.dto.ticket.TicketCommentResponse;
+import com.poz.CustomerService.dto.ticket.TicketDetailResponse;
+import com.poz.CustomerService.dto.ticket.TicketListItemResponse;
+import com.poz.CustomerService.dto.ticket.TicketPageResponse;
 import com.poz.CustomerService.entity.TicketComments;
 import com.poz.CustomerService.entity.Tickets;
 import com.poz.CustomerService.exception.ApiException;
@@ -23,7 +23,6 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 工單相關的 business logic。
@@ -91,8 +90,6 @@ public class TicketService {
     /** 客服自己從「＋ 新增派件」手動建立。首字大寫是照 {@code CK_tickets_channel} 的值。 */
     private static final String CHANNEL_AGENT = "Agent";
 
-    private static final String TICKET_NO_PREFIX = "TK-";
-
     /** 每頁筆數上限。不擋的話，有人送 size=999999 就是一次把整張表撈進記憶體。 */
     private static final int MAX_PAGE_SIZE = 50;
 
@@ -147,8 +144,9 @@ public class TicketService {
      * 整批一起回滾，不會留下一張沒有任何記錄的孤兒工單。
      *
      * @param request {@link CreateTicketRequest}——表單內容，不可為 null。
-     *                {@code ticketNo} 不在裡面，由後端產生；「誰建立的」也不由前端指定
-     * @return {@link TicketListItemResponse}——建立好的工單，含後端發的 {@code ticketNo}。
+     *                {@code ticketNo} 不在裡面，由資料庫算（見 {@link Tickets#getTicketNo()}）；
+     *                「誰建立的」也不由前端指定
+     * @return {@link TicketListItemResponse}——建立好的工單，含資料庫算出來的 {@code ticketNo}。
      *         前端拿到之後就能導到工單詳情頁
      * @throws ApiException 404 / {@code AGENT_NOT_FOUND}——指定的轉派對象不存在。
      *                      必填欄位空白、主旨超長、status 不在白名單內都不在這裡擋，
@@ -166,8 +164,9 @@ public class TicketService {
         String assigneeId = resolveAssignee(request.assigneeId(), me);
         String description = request.description();
 
+        // ticketNo 沒有填：它是資料庫的計算欄位，由 ticket_id 推導，
+        // INSERT 完 Hibernate 會自己 SELECT 回來，所以下面用得到 ticket.getTicketNo()。
         Tickets ticket = ticketsRepository.save(Tickets.builder()
-                .ticketNo(TICKET_NO_PREFIX + ThreadLocalRandom.current().nextInt(100_000, 1_000_000))
                 .title(title)
                 .customerName(request.customerName())
                 .contactPhone(request.contactPhone().trim())
@@ -177,7 +176,6 @@ public class TicketService {
                 .channel(channel)
                 .assigneeId(assigneeId)
                 .build());
-        ticket.setTicketNo(TICKET_NO_PREFIX + String.format("%06d", ticket.getTicketId()));
 
         // 處理記錄，順序照 index.html 的 createFromCall()
         writeComment(ticket, null, channel.equals("PHONE")
@@ -187,7 +185,7 @@ public class TicketService {
 
         writeComment(ticket, null, "狀態設定為「" + STATUS_LABEL.get(status) + "」");
         if (!assigneeId.equals(me)) {
-            writeComment(ticket, null, "由 " + me + " 轉派給 " + assigneeId);
+            writeAssignComment(ticket, me, assigneeId);
         }
 
         return TicketListItemResponse.from(ticket);
@@ -251,19 +249,31 @@ public class TicketService {
         return detail(ticketNo);
     }
 
+    @Transactional
+    public  TicketDetailResponse assign(String ticketNo, String assignID){
+        Tickets ticket = findTicket(ticketNo);
+        if (!agentsRepository.existsById(assignID)) {
+            throw ApiException.notFound("AGENT_NOT_FOUND", "找不到客服：" + assignID);
+        }
+        String me = currentAgentProvider.currentAgentId();
+        ticket.setAssigneeId(assignID);
+        writeAssignComment(ticket, me, assignID);
+        return detail(ticketNo);
+    }
+
+    @Transactional
+    public  TicketDetailResponse submitContent(String ticketNo, String content){
+        Tickets ticket = findTicket(ticketNo);
+        String me = currentAgentProvider.currentAgentId();
+        writeComment(ticket, me, content);
+        return detail(ticketNo);
+    }
+
     // ------------------------------------------------------------------
     // 內部小工具
     // ------------------------------------------------------------------
 
     /**
-     * 用對外編號撈一張工單，撈不到就丟 404。
-     * <p>
-     * 「用 ticketNo 找工單，找不到回 404」這件事，詳情、狀態變更、轉派、新增處理記錄、
-     * 設定跟進時間每一支都要做一次。抽出來不是為了省那三行，是為了讓<b>錯誤代碼和文案只有一份</b>——
-     * 散在五個地方的話，哪天要改文案就得五個地方都記得改，漏一個就不一致。
-     * <p>
-     * 撈回來的是<b>受管理的 entity</b>：在有 {@code @Transactional} 的方法裡改它的欄位，
-     * 交易結束時 Hibernate 會自動送出 UPDATE，不必再呼叫 {@code save()}。
      *
      * @param ticketNo {@code String}——對外的工單編號，格式 TK-XXXXXX
      * @return {@link Tickets}——查到的工單，不會是 null
@@ -291,10 +301,12 @@ public class TicketService {
      * @throws ApiException 404 / {@code AGENT_NOT_FOUND}——代號不存在
      */
     private String resolveAssignee(String requested, String me) {
-        String assigneeId = requested;
-        if (assigneeId == null) {
+        // 空字串也算「沒送」：前端那個輸入框就算沒勾轉派也可能帶著空值上來
+        // （index.html:450 是無條件讀欄位值），當成漏填擋掉會很莫名其妙。
+        if (requested == null || requested.isBlank()) {
             return me;
         }
+        String assigneeId = requested.trim();
         if (!agentsRepository.existsById(assigneeId)) {
             throw ApiException.notFound("AGENT_NOT_FOUND", "找不到客服：" + assigneeId);
         }
@@ -302,11 +314,28 @@ public class TicketService {
     }
 
     /**
+     * 寫一筆轉派記錄。{@link #create(CreateTicketRequest)} 建單時就指定別人、
+     * 以及 {@link #assign(String, String)} 事後轉派，兩邊共用這一支。
+     * <p>
+     * 抽出來是為了讓「同一種事件」在 timeline 上長得一模一樣——文案一致，
+     * 留言者也一致掛在<b>執行轉派的人</b>名下（不是系統事件），
+     * 否則同樣一句「由 A 轉派給 B」會因為進入點不同而顯示成兩種樣子。
+     *
+     * @param ticket        {@link Tickets}——已經 save 過的工單
+     * @param me            {@code String}——執行轉派的客服代號，會成為這筆記錄的留言者
+     * @param targetAgentId {@code String}——被轉派到的客服代號
+     */
+    private void writeAssignComment(Tickets ticket, String me, String targetAgentId) {
+        writeComment(ticket, me, "由 " + me + " 轉派給 " + targetAgentId);
+    }
+
+    /**
      * 寫一筆處理記錄。
      *
      * @param ticket  {@link Tickets}——已經 save 過的工單，這裡要拿它被資料庫發號的 ticketId
      * @param agentId {@code String}——留言者的客服代號；<b>傳 null 代表系統事件</b>
-     *                （建單、狀態設定、轉派），前端會顯示成「系統」
+     *                （建單、狀態設定），前端會顯示成「系統」。
+     *                轉派不算系統事件，走 {@link #writeAssignComment}
      * @param content {@code String}——留言內容或系統事件描述，不可為 null
      */
     private void writeComment(Tickets ticket, String agentId, String content) {

@@ -1,10 +1,10 @@
 package com.poz.CustomerService.controller;
 
-import com.poz.CustomerService.dto.ChangeStatusRequest;
-import com.poz.CustomerService.dto.CreateTicketRequest;
-import com.poz.CustomerService.dto.TicketDetailResponse;
-import com.poz.CustomerService.dto.TicketListItemResponse;
-import com.poz.CustomerService.dto.TicketPageResponse;
+import com.poz.CustomerService.dto.ticket.ChangeStatusRequest;
+import com.poz.CustomerService.dto.ticket.CreateTicketRequest;
+import com.poz.CustomerService.dto.ticket.TicketDetailResponse;
+import com.poz.CustomerService.dto.ticket.TicketListItemResponse;
+import com.poz.CustomerService.dto.ticket.TicketPageResponse;
 import com.poz.CustomerService.service.TicketService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -113,7 +113,10 @@ public class TicketController {
      * 代號不存在回 404；與目前負責人相同就不做事，直接回成功。
      */
 
-
+    @PatchMapping("/{ticketNo}/assign")
+    public  TicketDetailResponse assign(@PathVariable String ticketNo,@RequestParam String assignID){
+        return  ticketService.assign(ticketNo, assignID);
+    }
 
     /*
      * TODO POST /api/tickets/{ticketNo}/comments —— 新增處理記錄
@@ -121,25 +124,8 @@ public class TicketController {
      * 留言者取自登入身分，不收前端指定。
      */
 
-
-
-    /*
-     * TODO GET /api/tickets/follow-ups?year=&month= —— 行事曆月檢視
-     * 回該月每一天的跟進件數與明細，只含目前登入客服自己的工單。
-     */
-
-
-
-    /*
-     * TODO GET /api/tickets/followable —— 可排入行事曆的案件
-     * 回自己的、狀態為 IN_PROGRESS 或 PENDING 的工單，供右側下拉選單用。
-     */
-
-
-
-    /*
-     * TODO PATCH /api/tickets/{ticketNo}/follow-up —— 設定/移除跟進時間
-     * 收跟進時間，回改完的工單；送 null 代表移除。
-     */
-
+    @PatchMapping("/{ticketNo}/submit")
+    public TicketDetailResponse submit(@PathVariable String ticketNo,@RequestParam String content){
+        return  ticketService.submitContent(ticketNo,content);
+    }
 }

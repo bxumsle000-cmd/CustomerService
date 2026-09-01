@@ -81,7 +81,6 @@ class JpaTest {
     @Test
     void insertTicket() {
         Tickets tickets = Tickets.builder()
-                .ticketNo("TK-12346")
                 .customerName("陳小美")
                 .contactPhone("0973862551")
                 .title("詢問帳單")

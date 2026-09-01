@@ -129,6 +129,9 @@
   .tl .meta{font-size:13px}
   .tl .meta .t{color:var(--faint)}
   .tl .body{font-size:13.5px;color:var(--muted);margin-top:2px}
+  /* 操作記錄（轉派這類）：掛在某個客服名下，但不是他「說」的話，
+     所以用比留言更淡的字重畫，跟真正的人工留言區分開。 */
+  .tl .body.act{color:var(--faint);font-style:italic}
 
   .addrow{display:flex;gap:9px;margin-top:16px}
   .addrow input{flex:1}
@@ -334,6 +337,10 @@ function mk(no,custId,title,desc,status,pri,cat,ch,created,due,comments){
 }
 function sys(text,t){return {system:true,author:'系統',content:text,time:t}}
 function usr(a,text,t){return {system:false,author:a,content:text,time:t}}
+/* 操作記錄：有人做的（所以掛他的代號），但不是留言。
+   對應後端 writeComment(ticket, me, ...)——agentId 不是 null，畫面上就不會顯示成「系統」。
+   內容不要再寫一次「由某某」，執行者已經在上面那行的作者欄了。 */
+function act(a,text,t){return {system:false,action:true,author:a,content:text,time:t}}
 /* 「碰一下」工單：任何算是動靜的操作都要呼叫，首頁的「更新時間」才會跟著動。
    對應後端要注意的坑——新增留言只會 INSERT 到 ticket_comments，不會觸發 Tickets 的
    @PreUpdate，所以 TicketService 那邊也必須在同一個交易裡主動更新工單本身。 */
@@ -729,7 +736,7 @@ function renderTicket(v){
         <div style="font-weight:600;margin:8px 0 4px">處理記錄</div>
         <div class="timeline">${t.comments.slice().reverse().map(cm=>`
           <div class="tl"><div class="av ${cm.system?'sys':'user'}">${cm.system?'系':cm.author[0]}</div>
-          <div><div class="meta"><b>${cm.author}</b><span class="t"> · ${fmt(cm.time)}</span></div><div class="body">${esc(cm.content)}</div></div></div>`).join('')}</div>
+          <div><div class="meta"><b>${cm.author}</b><span class="t"> · ${fmt(cm.time)}</span></div><div class="body${cm.action?' act':''}">${esc(cm.content)}</div></div></div>`).join('')}</div>
         <div class="addrow">
           <input type="text" id="cm" placeholder="新增處理記錄…" onkeydown="if(event.key==='Enter')addComment()">
           <button class="btn" onclick="addComment()">送出</button>
@@ -754,7 +761,9 @@ function reassign(){
   const to=$('#r-assignee-code').value.trim();
   if(!to){$('#r-assignee-code').focus();$('#r-assignee-code').style.borderColor='var(--red)';return;}
   if(to===t.assignee) return;
-  t.comments.push(sys(`由 ${t.assignee} 轉派給 ${to}`,Date.now()));
+  /* 執行轉派的是目前登入的客服（ME），不是工單原本的負責人，
+     對應後端 TicketService.assigne() 的 currentAgentProvider.currentAgentId()。 */
+  t.comments.push(act(ME,`轉派給 ${to}`,Date.now()));
   t.assignee=to;touch(t);
   renderTicket($('#view'));
 }

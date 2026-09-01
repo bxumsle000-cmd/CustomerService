@@ -1,4 +1,4 @@
-package com.poz.CustomerService.dto;
+package com.poz.CustomerService.dto.ticket;
 
 import com.poz.CustomerService.entity.Tickets;
 import org.springframework.data.domain.Page;

@@ -1,12 +1,13 @@
 package com.poz.CustomerService.service;
 
 import com.poz.CustomerService.entity.Agents;
-import com.poz.CustomerService.dto.AgentResponse;
-import com.poz.CustomerService.dto.LoginRequest;
-import com.poz.CustomerService.dto.LoginResponse;
-import com.poz.CustomerService.dto.UpdateAgentStatusRequest;
+import com.poz.CustomerService.dto.agent.AgentResponse;
+import com.poz.CustomerService.dto.auth.LoginRequest;
+import com.poz.CustomerService.dto.auth.LoginResponse;
+import com.poz.CustomerService.dto.agent.UpdateAgentStatusRequest;
 import com.poz.CustomerService.exception.ApiException;
 import com.poz.CustomerService.repository.AgentsRepository;
+import com.poz.CustomerService.security.CurrentAgentProvider;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -14,7 +15,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
-import java.util.Set;
 
 /**
  * 客服相關的 business logic：登入、查自己、客服清單、變更工作狀態。
@@ -33,14 +33,14 @@ import java.util.Set;
  * </ul>
  * 內部小工具（private，Controller 叫不到）：
  * <ul>
- *   <li>{@link #currentAgentId()}——「我是誰」，目前寫死，之後接 JWT 只改這一支</li>
  *   <li>{@link #findAgentOrThrow(String)}——依代號撈客服，查不到丟 404</li>
  *   <li>{@link #invalidCredentials()}——產生 401 例外</li>
  * </ul>
  * <b>還沒有的</b>：新增客服、改密碼、停用帳號。客服資料目前由 V2__seed_agents.sql 直接塞進資料庫。
  *
  * <h2>身分怎麼來</h2>
- * 方法簽章上<b>都沒有</b> agentId 參數，「我是誰」一律由 {@link #currentAgentId()} 決定。
+ * 方法簽章上<b>都沒有</b> agentId 參數，「我是誰」一律由
+ * {@link CurrentAgentProvider#currentAgentId()} 決定。
  * 這樣 Controller 就沒機會把身分弄錯——若改由 Controller 傳進來，
  * 只要有一支不小心從 request 參數取值而不是從 token，就變成「任何人都能查別人的資料」，
  * 而且不會噴錯、測試也會過。
@@ -52,40 +52,24 @@ public class AgentService {
     private final AgentsRepository agentsRepository;
     private final PasswordEncoder passwordEncoder;
 
+    /** 「目前登入的是誰」只有它知道，之後接 JWT 只要改它一支。 */
+    private final CurrentAgentProvider currentAgentProvider;
+
     // ------------------------------------------------------------------
     // 狀態常數
     // ------------------------------------------------------------------
     private static final String STATUS_ONLINE = "ONLINE";
 
-    /** 通話中。由通話事件驅動，不接受客服手動設定。 */
+    /**
+     * 通話中。由通話事件驅動，不接受客服手動設定。
+     * <p>
+     * 「不可手動切換<b>成</b> ON_CALL」由 {@link UpdateAgentStatusRequest} 的 {@code @Pattern} 擋，
+     * 這個常數只用來判斷「目前是不是正在通話中」。
+     */
     private static final String STATUS_ON_CALL = "ON_CALL";
-
-    /** 允許客服手動選擇的狀態。刻意不含 ON_CALL。 */
-    private static final Set<String> PICKABLE_STATUS =
-            Set.of("ONLINE", "BREAK", "RESTROOM", "LUNCH", "MEETING");
 
     /** 還沒接 JWT，先回一個明顯是假的字串，萬一不小心上線一眼就看得出來不對勁。 */
     private static final String DEV_PLACEHOLDER_TOKEN = "DEV-TOKEN-NOT-A-REAL-JWT";
-
-    // ------------------------------------------------------------------
-    // 目前登入的客服
-    // ------------------------------------------------------------------
-
-    /** 開發階段寫死的客服代號，對應 V2__seed_agents.sql 建的「林曉明」。 */
-    private static final String DEV_CURRENT_AGENT_ID = "CSC00001";
-
-    /**
-     * 目前登入的客服代號。
-     * <p>
-     * 接上 JWT 之後把內容換成
-     * {@code SecurityContextHolder.getContext().getAuthentication().getName()} 就好，
-     * 其他地方都不用動。
-     *
-     * @return {@code String}——客服代號，例如 CSC00001。現階段固定回傳寫死的值，不會是 null
-     */
-    private String currentAgentId() {
-        return DEV_CURRENT_AGENT_ID;
-    }
 
     // ------------------------------------------------------------------
     // 對外的方法
@@ -121,14 +105,15 @@ public class AgentService {
     /**
      * 取得目前登入的客服，對應 GET /api/auth/me。供側邊欄與右上角狀態選單顯示。
      * <p>
-     * 沒有參數——「我是誰」由 {@link #currentAgentId()} 決定，不由呼叫端指定。
+     * 沒有參數——「我是誰」由 {@link CurrentAgentProvider#currentAgentId()} 決定，
+     * 不由呼叫端指定。
      *
      * @return {@link AgentResponse}——目前登入者的 agentId / name / status
      * @throws ApiException 404 / {@code AGENT_NOT_FOUND}——登入中的代號在資料庫查不到
      */
     @Transactional(readOnly = true)
     public AgentResponse me() {
-        return AgentResponse.from(findAgentOrThrow(currentAgentId()));
+        return AgentResponse.from(findAgentOrThrow(currentAgentProvider.currentAgentId()));
     }
 
     /**
@@ -152,25 +137,17 @@ public class AgentService {
      *                只接受 ONLINE / BREAK / RESTROOM / LUNCH / MEETING。
      *                沒有 agentId，改的一定是自己
      * @return {@link AgentResponse}——改完之後的 agentId / name / status
-     * @throws ApiException 400 / {@code INVALID_AGENT_STATUS}——狀態不在白名單內（含 ON_CALL）；
-     *                      400 / {@code AGENT_ON_CALL}——目前通話中，不允許變更；
+     * @throws ApiException 400 / {@code AGENT_ON_CALL}——目前通話中，不允許變更；
      *                      404 / {@code AGENT_NOT_FOUND}——登入中的代號在資料庫查不到
      */
     @Transactional
     public AgentResponse updateMyStatus(UpdateAgentStatusRequest request) {
         String newStatus = request.status();
 
-        // DTO 的 @Pattern 也會擋這一關，但那要 Controller 加了 @Valid 才生效，
-        // Service 不該假設呼叫端一定驗過。
-        if (!PICKABLE_STATUS.contains(newStatus)) {
-            throw ApiException.badRequest(
-                    "INVALID_AGENT_STATUS",
-                    STATUS_ON_CALL.equals(newStatus)
-                            ? "「通話中」由系統自動設定，不可手動變更"
-                            : "不支援的客服狀態：" + newStatus);
-        }
-
-        Agents agent = findAgentOrThrow(currentAgentId());
+        // 這裡不再檢查 newStatus 在不在白名單：
+        // UpdateAgentStatusRequest 的 @Pattern 已經擋掉（含 ON_CALL），
+        // 兩邊都寫等於同一條規則有兩份定義，改的時候很容易只改到一邊。
+        Agents agent = findAgentOrThrow(currentAgentProvider.currentAgentId());
 
         // 這一關 DTO 擋不了——它看不到資料庫裡的現況，只有這裡知道。
         if (STATUS_ON_CALL.equals(agent.getStatus())) {

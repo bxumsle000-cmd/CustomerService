@@ -5,6 +5,8 @@ import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.Generated;
+import org.hibernate.generator.EventType;
 
 import java.time.LocalDateTime;
 
@@ -13,18 +15,17 @@ import java.time.LocalDateTime;
  *
  * <h2>建立一筆新工單要填什麼</h2>
  * <ul>
- *   <li><b>必填</b>：{@code ticketNo}（還要全表唯一）、{@code title}、
- *       {@code category}、{@code channel}、{@code assigneeId}</li>
+ *   <li><b>必填</b>：{@code title}、{@code category}、{@code channel}、{@code assigneeId}</li>
  *   <li><b>可留空</b>：{@code customerName}、{@code contactPhone}、
  *       {@code description}、{@code followUpAt}</li>
- *   <li><b>不要自己填</b>：{@code ticketId}（資料庫發號）、
+ *   <li><b>不要自己填</b>：{@code ticketId}（資料庫發號）、{@code ticketNo}（資料庫算出來的）、
  *       {@code status}（自動補 IN_PROGRESS）、{@code createdAt} / {@code updatedAt}（callback 維護）</li>
  * </ul>
  *
  * <h2>新增用 builder，修改用 setter</h2>
  * <pre>
  * Tickets t = Tickets.builder()
- *         .ticketNo("TK-000001").title("詢問帳單")
+ *         .title("詢問帳單")
  *         .category("帳單問題").channel("PHONE").assigneeId("CSC00001")
  *         .build();
  * </pre>
@@ -55,10 +56,19 @@ public class Tickets {
     private Integer ticketId;
 
     /**
-     * 對外顯示的工單編號，格式 TK-XXXXXX。
-     * {@code tickets.ticket_no}，NVARCHAR(10)、NOT NULL、<b>全表唯一</b>。
+     * 對外顯示的工單編號，格式 TK-000001。
+     * {@code tickets.ticket_no}，NOT NULL、<b>全表唯一</b>。
+     * <p>
+     * <b>不要自己填</b>：這一欄在資料庫是「計算欄位」，值由 {@code ticket_id} 推導
+     *（見 {@code V1__init_schema.sql}），Java 這邊只讀不寫——所以標了
+     * {@code insertable = false, updatable = false}，你就算 set 了也不會寫進資料庫。
+     * <p>
+     * {@code @Generated(event = INSERT)} 是告訴 Hibernate「這一欄的值是資料庫產生的」，
+     * INSERT 完會自動再發一次 SELECT 把算好的編號讀回來，
+     * 所以 {@code save()} 回來的物件就已經有 ticketNo 可用了。
      */
-    @Column(name = "ticket_no")
+    @Generated(event = EventType.INSERT)
+    @Column(name = "ticket_no", insertable = false, updatable = false)
     private String ticketNo;
 
     /**

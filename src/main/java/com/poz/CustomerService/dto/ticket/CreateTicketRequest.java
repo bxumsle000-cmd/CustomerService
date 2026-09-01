@@ -1,4 +1,4 @@
-package com.poz.CustomerService.dto;
+package com.poz.CustomerService.dto.ticket;
 
 /*
  * =====================================================================
@@ -125,7 +125,11 @@ public record CreateTicketRequest(
     @NotBlank(message = "不可以沒有分類")
     String category,
 
-    @NotBlank(message = "不可以沒有客服處理")
+    // assigneeId 刻意「不」加 @NotBlank——它是選填的（見上面第 43 行的欄位表）。
+    // 前端只有勾了「轉派給其他客服」才會送代號（index.html:563），沒勾就不送、
+    // 或送一個空字串上來；那代表「我自己處理」，不是使用者漏填。
+    // 加了 @NotBlank 的話這個情境會被擋成 400，而且 TicketService.resolveAssignee()
+    // 裡「沒送就派給自己」那段永遠跑不到。
     String assigneeId,
 
     // description 對應 NVARCHAR(MAX)，沒有實際上限，不加 @Size

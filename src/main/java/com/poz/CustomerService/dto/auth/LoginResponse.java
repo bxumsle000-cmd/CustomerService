@@ -1,4 +1,6 @@
-package com.poz.CustomerService.dto;
+package com.poz.CustomerService.dto.auth;
+
+import com.poz.CustomerService.dto.agent.AgentResponse;
 
 /**
  * 登入成功的回應，對應 POST /api/auth/login。

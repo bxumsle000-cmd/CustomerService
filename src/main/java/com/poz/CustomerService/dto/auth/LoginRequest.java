@@ -1,4 +1,4 @@
-package com.poz.CustomerService.dto;
+package com.poz.CustomerService.dto.auth;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;

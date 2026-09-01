@@ -1,7 +1,7 @@
 package com.poz.CustomerService.controller;
 
-import com.poz.CustomerService.dto.AgentResponse;
-import com.poz.CustomerService.dto.UpdateAgentStatusRequest;
+import com.poz.CustomerService.dto.agent.AgentResponse;
+import com.poz.CustomerService.dto.agent.UpdateAgentStatusRequest;
 import com.poz.CustomerService.service.AgentService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;

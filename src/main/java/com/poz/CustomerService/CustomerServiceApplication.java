@@ -18,6 +18,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * {@code @SpringBootApplication} 從這個類別所在的套件往下掃描，
  * 所以新增的 controller / service / repository 都要放在底下 Spring 才找得到。
  */
+//http://localhost:8080/swagger-ui/index.html
 @SpringBootApplication
 public class CustomerServiceApplication {
 

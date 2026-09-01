@@ -1,4 +1,4 @@
-package com.poz.CustomerService.dto;
+package com.poz.CustomerService.dto.agent;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;

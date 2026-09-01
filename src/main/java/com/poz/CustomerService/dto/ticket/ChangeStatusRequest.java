@@ -1,14 +1,10 @@
-package com.poz.CustomerService.dto;
+package com.poz.CustomerService.dto.ticket;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Pattern;
 
 /**
  * 變更工單狀態，對應 PATCH /api/tickets/{ticketNo}/status。
- *
- * 白名單要跟 V1__init_schema.sql 的 {@code CK_tickets_status} 一致，
- * 也跟 {@code TicketService.STATUS_LABEL} 的三個 key 一致——
- * 有一邊漏改，值就會過得了這關卻被資料庫擋成 500。
  *
  * 這裡只擋得住「值本身不合法」。
  * 「RESOLVED 不能直接跳 PENDING」這種要看工單目前是什麼狀態，
