@@ -100,4 +100,19 @@ public class ApiException extends RuntimeException {
     public static ApiException notFound(String code, String message) {
         return new ApiException(HttpStatus.NOT_FOUND, code, message);
     }
+
+    /**
+     * 409：資料已經存在，再做一次會撞到唯一約束。
+     * <p>
+     * 跟 400 的差別在於「錯的是什麼」：400 是這次送來的內容本身不合格（格式、長度、非法轉換），
+     * 409 是內容沒問題、但跟資料庫現有的狀態衝突了。前端的處理方式也不一樣——
+     * 400 要使用者改輸入，409 通常是「你已經做過了」。
+     *
+     * @param code    {@code String}——錯誤代號，例如 {@code FOLLOW_UP_ALREADY_EXISTS}
+     * @param message {@code String}——給人看的中文訊息
+     * @return {@link ApiException}——還沒被丟出
+     */
+    public static ApiException conflict(String code, String message) {
+        return new ApiException(HttpStatus.CONFLICT, code, message);
+    }
 }

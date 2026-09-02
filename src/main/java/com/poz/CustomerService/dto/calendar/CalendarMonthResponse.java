@@ -1,10 +1,6 @@
 package com.poz.CustomerService.dto.calendar;
 
-import com.poz.CustomerService.entity.FollowUps;
-import com.poz.CustomerService.entity.Tickets;
-
 import java.util.List;
-import java.util.Map;
 
 /**
  * 行事曆整個月的回應，對應 GET /api/calendar。
@@ -14,11 +10,24 @@ import java.util.Map;
  * 沒有這兩個欄位的話，慢回來的九月資料會蓋掉已經畫好的十月，
  * 而且畫面上不會有任何錯誤——只是月份標題寫十月、格子裡卻是九月的事件。
  *
+ * <h2>這裡不依日期分組</h2>
+ * <b>不</b>組成 {@code Map<LocalDate, List<...>>}：分組要用哪一種格子
+ * （月曆一天一格、週檢視一小時一格）是畫面的事，後端先決定好反而綁死前端。
+ * 回一個排好序的平面 list，前端要怎麼切都行。
+ *
+ * <h2>為什麼沒有 from()</h2>
+ * 其他 DTO 的 {@code from()} 是在做「entity → DTO」的轉換，負責決定哪些欄位可以出去。
+ * 這一支沒有那件事可做——它只是把已經轉好的 event list 包一層月份資訊，
+ * 真正在轉 entity 的是 {@link CalendarEventResponse#from}。
+ * 硬加一支 {@code from()} 只會讓「把安排和工單配對起來」這個屬於 Service 的工作
+ * 跑到回應物件裡，還得為此把兩個 entity 當參數傳進來。
+ *
  * @param year   {@code int}——西元年，例如 2026
  * @param month  {@code int}——月份，<b>1 到 12</b>（不是 0 到 11，跟 JavaScript 的 Date 不一樣，
  *               前端接的時候要注意）
  * @param events {@code List<CalendarEventResponse>}——這個月的所有回電安排，
- *               已依回電時間由早到晚排序。這個月沒有任何安排時是空 list，不會是 null
+ *               已依回電時間由早到晚排序。同一張工單排了多筆就會出現多格。
+ *               這個月沒有任何安排時是空 list，不會是 null
  */
 public record CalendarMonthResponse(
         int year,
@@ -27,40 +36,12 @@ public record CalendarMonthResponse(
 ) {
 
     /**
-     * 把「回電安排」和「它們對應的工單」兩批資料合起來組成回應。
-     *
-     * <h3>為什麼要傳一個 Map 進來</h3>
-     * 一格事件的內容橫跨 follow_ups 和 tickets 兩張表（見 {@link CalendarEventResponse}）。
-     * 最直覺的寫法是每跑一筆安排就去查一次工單，但那是典型的 N+1：一個月三十筆安排
-     * 就會發三十一次查詢。所以 Service 先用一次 {@code findAllById} 把這批工單一次撈回來、
-     * 做成 {@code ticketId -> Tickets} 的 Map 傳進來，這裡只做記憶體裡的配對，不再碰資料庫。
-     *
-     * <h3>這裡不依日期分組</h3>
-     * <b>不</b>組成 {@code Map<LocalDate, List<...>>}：分組要用哪一種格子
-     * （月曆一天一格、週檢視一小時一格）是畫面的事，後端先決定好反而綁死前端。
-     * 回一個排好序的平面 list，前端要怎麼切都行。
-     *
-     * @param year        {@code int}——西元年，原樣帶回
-     * @param month       {@code int}——月份 1 到 12，原樣帶回
-     * @param followUps   {@code List<FollowUps>}——repository 查回來的安排，已排序，不可為 null
-     * @param ticketsById {@code Map<Integer, Tickets>}——上面那批安排指向的工單，
-     *                    key 是 {@code ticketId}，不可為 null
-     * @return {@link CalendarMonthResponse}——events 已轉成 DTO，順序與 {@code followUps} 相同
+     * 把 {@code events} 複製成唯讀副本。record 只保證「欄位不能被換掉」，
+     * 不保證「欄位指到的 list 不能被改」——直接存傳進來的 list，
+     * 呼叫端之後對它 add、remove，這個 DTO 裡的內容會跟著變。
+     * 作法同 {@code TicketDetailResponse}。
      */
-    public static CalendarMonthResponse from(int year, int month,
-                                             List<FollowUps> followUps,
-                                             Map<Integer, Tickets> ticketsById) {
-        return new CalendarMonthResponse(
-                year,
-                month,
-                followUps.stream()
-                        // 正常情況下每筆安排都找得到工單（外鍵擋著）。
-                        // 唯一的例外是「兩次查詢中間剛好有人把工單刪掉」——
-                        // 那筆安排其實也已經被連帶刪除（ON DELETE CASCADE），
-                        // 顯示不出來才是對的，所以濾掉而不是丟例外。
-                        .filter(f -> ticketsById.containsKey(f.getTicketId()))
-                        .map(f -> CalendarEventResponse.from(f, ticketsById.get(f.getTicketId())))
-                        .toList()
-        );
+    public CalendarMonthResponse {
+        events = List.copyOf(events);
     }
 }

@@ -3,9 +3,9 @@ package com.poz.CustomerService.service;
 import com.poz.CustomerService.dto.ticket.CreateTicketRequest;
 import com.poz.CustomerService.dto.ticket.TicketCommentResponse;
 import com.poz.CustomerService.dto.ticket.TicketDetailResponse;
+import com.poz.CustomerService.dto.calendar.TicketFollowUpResponse;
 import com.poz.CustomerService.dto.ticket.TicketListItemResponse;
 import com.poz.CustomerService.dto.ticket.TicketPageResponse;
-import com.poz.CustomerService.entity.FollowUps;
 import com.poz.CustomerService.entity.TicketComments;
 import com.poz.CustomerService.entity.Tickets;
 import com.poz.CustomerService.exception.ApiException;
@@ -21,7 +21,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -36,7 +35,7 @@ import java.util.Map;
  *   <li>{@link #search(int, int)}——工單列表，分頁並依更新時間排序（篩選條件還沒接）</li>
  *   <li>{@link #create(CreateTicketRequest)}——建立工單，同時寫入建單當下的處理記錄</li>
  *   <li>{@link #detail(String)}——工單詳情，含處理記錄 timeline 與可轉換的狀態</li>
- *   <li>{@link #changeStatus(String, String)}——變更狀態，順便寫一筆系統記錄</li>
+ *   <li>{@link #changeStatus(String, String)}——變更狀態，擋掉非法轉換並寫一筆系統記錄</li>
  * </ul>
  * 內部小工具（private，Controller 叫不到）：
  * <ul>
@@ -79,17 +78,27 @@ public class TicketService {
     /**
      * 狀態機：目前狀態 → 允許轉換成哪些狀態。
      * <p>
-     * <b>現在用的人是 {@link #changeStatus(String, String)}</b>——工單詳情本來會把它回給前端，後來拿掉了（畫面上長按鈕用的是
-     * index.html 自己那份 TRANSITIONS）。留著是因為 PATCH /status 一定會用到：
-     * 前端的 {@code alert('非法的狀態轉換')} 只是第一道防線，擋不住直接打 API 的人，
-     * 後端非驗不可。寫那支的時候直接拿這張表來擋。
+     * 用的人是 {@link #changeStatus(String, String)}。工單詳情本來會把它回給前端，
+     * 後來拿掉了（畫面上長按鈕用的是 index.html 自己那份 TRANSITIONS）。
+     * 後端仍然非驗不可：前端的 {@code alert('非法的狀態轉換')} 只是第一道防線，
+     * 擋不住直接打 API 的人。
      * <p>
      * 規則：處理中可以去待客戶回覆或已解決；待客戶回覆可以回處理中或去已解決；
      * 已解決只能回處理中（重啟案件），不能直接跳去待客戶回覆。
      * <p>
+     * 每個 key 的 list 都<b>沒有放自己</b>，所以「改成跟現在一樣的狀態」也會被擋下來。
+     * <p>
      * 用 {@code LinkedHashMap} 的理由同 {@link #STATUS_LABEL}——順序有意義，
      * 前端按鈕就照 list 的順序排。
      */
+    private static final Map<String, List<String>> TRANSITIONS;
+    static {
+        Map<String, List<String>> transitions = new LinkedHashMap<>();
+        transitions.put("IN_PROGRESS", List.of("PENDING", "RESOLVED"));
+        transitions.put("PENDING", List.of("IN_PROGRESS", "RESOLVED"));
+        transitions.put("RESOLVED", List.of("IN_PROGRESS"));
+        TRANSITIONS = Collections.unmodifiableMap(transitions);
+    }
 
     /** 客服自己從「＋ 新增派件」手動建立。首字大寫是照 {@code CK_tickets_channel} 的值。 */
     private static final String CHANNEL_AGENT = "Agent";
@@ -223,14 +232,17 @@ public class TicketService {
                 .map(TicketCommentResponse::from)
                 .toList();
 
-        // 回電時間改成從 follow_ups 拿，而且只拿「我自己」排的那一筆——
+        // 回電安排從 follow_ups 拿，而且只拿「我自己」排的——
         // 它是私人行程，別的客服對同一張單排的回電不該出現在這一頁上。
-        LocalDateTime myFollowUpAt = followUpsRepository
-                .findByAgentIdAndTicketId(currentAgentProvider.currentAgentId(), ticket.getTicketId())
-                .map(FollowUps::getFollowUpAt)
-                .orElse(null);
+        // 一張單只要時間點不同就能排多筆，所以這裡撈的是一整串，不是單一時間。
+        List<TicketFollowUpResponse> myFollowUps = followUpsRepository
+                .findByAgentIdAndTicketIdOrderByFollowUpAtAscFollowUpIdAsc(
+                        currentAgentProvider.currentAgentId(), ticket.getTicketId())
+                .stream()
+                .map(TicketFollowUpResponse::from)
+                .toList();
 
-        return TicketDetailResponse.from(ticket, timeline, myFollowUpAt);
+        return TicketDetailResponse.from(ticket, timeline, myFollowUps);
     }
 
     /**
@@ -254,6 +266,15 @@ public class TicketService {
     public TicketDetailResponse changeStatus(String ticketNo, String status) {
         Tickets ticket = findTicket(ticketNo);
         String oldStatus = ticket.getStatus();
+
+        // getOrDefault 的預設值是空 list：oldStatus 萬一是白名單以外的值
+        // （資料庫被手動改過），任何轉換都不放行，而不是讓 null 冒出去變成 NPE。
+        if (!TRANSITIONS.getOrDefault(oldStatus, List.of()).contains(status)) {
+            throw ApiException.badRequest("INVALID_STATUS_TRANSITION",
+                    "無法從「" + STATUS_LABEL.getOrDefault(oldStatus, oldStatus)
+                            + "」變更為「" + STATUS_LABEL.getOrDefault(status, status) + "」");
+        }
+
         ticket.setStatus(status);
         writeComment(ticket, null, "狀態由「" + STATUS_LABEL.get(oldStatus)
                 + "」變更為「" + STATUS_LABEL.get(status) + "」");
