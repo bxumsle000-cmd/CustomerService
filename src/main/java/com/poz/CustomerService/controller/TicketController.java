@@ -11,12 +11,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.*;
 
 /**
- * 工單與處理記錄的端點：首頁的工單列表與工單詳情。
- * <p>
- * Controller 只做三件事：收參數、叫 Service、回結果。business logic 一律放
- * {@link TicketService}，這裡不寫判斷也不碰資料庫。
- * 也看不到 try-catch——Service 丟的 ApiException 由
- * {@link com.poz.CustomerService.exception.GlobalExceptionHandler} 統一轉成 JSON。
+ * 工單與處理記錄的端點：列表、建立、詳情、狀態變更、轉派、新增留言。
+ * business logic 一律放 {@link TicketService}。
  */
 @RestController
 @RequestMapping("/api/tickets")
@@ -26,24 +22,11 @@ public class TicketController {
     private final TicketService ticketService;
 
     /**
-     * 工單列表，GET /api/tickets。首頁那張表格。
-     * <p>
-     * <b>目前是最簡版：只吃分頁參數，六個篩選條件還沒接。</b>
-     * 接的時候把這兩個參數換成 {@code @Valid @ModelAttribute TicketSearchRequest}，
-     * 電話、單號、姓名那些就都是它的欄位。
-     * <p>
-     * 用 {@code @RequestParam} 而不是 {@code @RequestBody}：GET 沒有 request body，
-     * 值要放在網址的 {@code ?} 後面，例如 {@code /api/tickets?page=2&size=20}。
-     * <p>
-     * 另外 {@code @RequestParam} 只綁得了字串、數字這類單純的值，
-     * 不能拿來接 {@code Tickets} 這種物件——Spring 不知道要怎麼把一個網址參數
-     * 變成一整個 entity。要一次收多個查詢條件時，用的是 {@code @ModelAttribute}。
+     * 工單列表，GET /api/tickets/search。目前只吃分頁參數。
      *
-     * @param page {@code int}——頁碼，從 1 開始。沒帶就是第 1 頁
-     * @param size {@code int}——每頁筆數，上限 50。沒帶就是 10 筆
-     * @return {@link TicketPageResponse}——200，這一頁的工單 + 分頁資訊 + 四個 tab 的件數。
-     *         沒有符合條件的資料時 content 是空陣列（仍然是 200，不是 404）；
-     *         page / size 超出範圍回 400 / {@code VALIDATION_ERROR}
+     * @param page 頁碼，從 1 開始，沒帶就是第 1 頁
+     * @param size 每頁筆數，上限 50，沒帶就是 10 筆
+     * @return 200，這一頁的工單 + 分頁資訊；page / size 超出範圍回 400
      */
     @GetMapping("/search")
     public TicketPageResponse search(
@@ -52,15 +35,11 @@ public class TicketController {
         return ticketService.search(page, size);
     }
 
-    // ==================================================================
-    // 以下還沒寫，一支一支補上來
-    // ==================================================================
-
-    /*
-     * TODO POST /api/tickets —— 建立工單
-     * 收表單內容，回 201 與建好的工單（含後端發的 ticketNo）。
-     * ticketNo 與「誰建立的」都由後端決定，不收前端指定。
-     * Service 的 create() 已經寫好，這裡只要接上 @Valid @RequestBody。
+    /**
+     * 建立工單，POST /api/tickets/create。
+     *
+     * @param request 表單內容；ticketNo 與建立者由後端決定，不收前端指定
+     * @return 200，建好的工單（含後端發的 ticketNo）；欄位不合法回 400
      */
     @PostMapping("/create")
     public TicketListItemResponse create(
@@ -71,23 +50,10 @@ public class TicketController {
 
 
     /**
-     * 工單詳情，GET /api/tickets/{ticketNo}。點開列表某一列之後看到的那一頁。
-     * <p>
-     * 用 {@code @PathVariable} 而不是 {@code @RequestParam}：單號是「哪一張工單」的身分，
-     * 屬於資源路徑的一部分，所以放在路徑裡（{@code /api/tickets/TK-000123}），
-     * 不是放在 {@code ?} 後面當查詢條件。
-     * <p>
-     * 三種收參數的方式到這裡就都用過一輪了：{@code @RequestParam} 收網址 {@code ?} 後面的值
-     * （見 {@link #search(int, int)}）、{@code @RequestBody} 收 JSON、
-     * {@code @PathVariable} 收路徑裡 {@code {}} 的那一段。
-     * <p>
-     * 參數名 {@code ticketNo} 跟路徑上的 <code>{ticketNo}</code> 一樣，所以
-     * {@code @PathVariable} 不必再寫一次名字。兩邊取不同名字時要寫成
-     * {@code @PathVariable("ticketNo") String no}。
+     * 工單詳情，GET /api/tickets/{ticketNo}/detail。
      *
-     * @param ticketNo {@code String}——路徑上的工單編號，格式 TK-XXXXXX
-     * @return {@link TicketDetailResponse}——200，工單全欄位 + 處理記錄 timeline +
-     *         目前狀態可以轉換成哪些狀態。
+     * @param ticketNo 路徑上的工單編號，格式 TK-XXXXXX
+     * @return 200，工單全欄位 + 處理記錄 timeline + 自己的回電安排；
      *         單號不存在回 404 / {@code TICKET_NOT_FOUND}
      */
     @GetMapping("/{ticketNo}/detail")
@@ -95,10 +61,12 @@ public class TicketController {
         return ticketService.detail(ticketNo);
     }
 
-    /*
-     * TODO PATCH /api/tickets/{ticketNo}/status —— 變更狀態
-     * 收新狀態，回改完的工單。
-     * 非法的狀態轉換回 400。
+    /**
+     * 變更工單狀態，PATCH /api/tickets/{ticketNo}/changeStatus。
+     *
+     * @param ticketNo 路徑上的工單編號，格式 TK-XXXXXX
+     * @param request  要改成的新狀態
+     * @return 200，改完的工單詳情；非法的狀態轉換回 400、單號不存在回 404
      */
     @PatchMapping("/{ticketNo}/changeStatus")
     public  TicketDetailResponse changeStatus(@PathVariable String ticketNo,
@@ -107,23 +75,25 @@ public class TicketController {
     }
 
 
-    /*
-     * TODO PATCH /api/tickets/{ticketNo}/assignee —— 轉派
-     * 收客服代號，回改完的工單。
-     * 代號不存在回 404；與目前負責人相同就不做事，直接回成功。
+    /**
+     * 轉派工單，PATCH /api/tickets/{ticketNo}/assign。
+     *
+     * @param ticketNo 路徑上的工單編號，格式 TK-XXXXXX
+     * @param assignID 要轉派給誰的客服代號
+     * @return 200，改完的工單詳情；單號或客服代號不存在回 404
      */
-
     @PatchMapping("/{ticketNo}/assign")
     public  TicketDetailResponse assign(@PathVariable String ticketNo,@RequestParam String assignID){
         return  ticketService.assign(ticketNo, assignID);
     }
 
-    /*
-     * TODO POST /api/tickets/{ticketNo}/comments —— 新增處理記錄
-     * 收留言內容，回新增的那一筆。
-     * 留言者取自登入身分，不收前端指定。
+    /**
+     * 新增處理記錄，PATCH /api/tickets/{ticketNo}/submit。
+     *
+     * @param ticketNo 路徑上的工單編號，格式 TK-XXXXXX
+     * @param content  留言內容；留言者取自登入身分，不收前端指定
+     * @return 200，改完的工單詳情；單號不存在回 404
      */
-
     @PatchMapping("/{ticketNo}/submit")
     public TicketDetailResponse submit(@PathVariable String ticketNo,@RequestParam String content){
         return  ticketService.submitContent(ticketNo,content);

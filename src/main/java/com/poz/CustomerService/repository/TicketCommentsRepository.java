@@ -7,20 +7,16 @@ import org.springframework.stereotype.Repository;
 import java.util.List;
 
 /**
- * 工單留言／處理記錄的存取入口。主鍵型別是 {@code Integer}（留言流水號，由資料庫發號）。
- * <p>
- * 還沒有處理記錄相關的 Service，所以這個介面自己一支方法都沒有，
- * 目前只用 {@link JpaRepository} 內建的 {@code save} / {@code findById} /
- * {@code deleteById} / {@code existsById}。
- * <p>
- * 之後要「查某張工單底下的所有留言」時，在這裡加一行就有：
- * <pre>
- * List&lt;TicketComments&gt; findByTicketIdOrderByCreatedAtAsc(Integer ticketId);
- * </pre>
+ * 工單留言／處理記錄的存取入口。主鍵型別是 {@code Integer}（留言流水號）。
  */
 @Repository
 public interface TicketCommentsRepository extends JpaRepository<TicketComments, Integer> {
+
+    /**
+     * 查某張工單底下的所有處理記錄，由舊到新。
+     *
+     * @param ticketId 工單的內部流水號，不是 TK-000001 那種對外編號
+     * @return 這張單的所有記錄，已排序；沒有留言時是空 list，不會是 null
+     */
     List<TicketComments> findByTicketIdOrderByCreatedAtAscCommentIdAsc(Integer ticketId);
-
-
 }

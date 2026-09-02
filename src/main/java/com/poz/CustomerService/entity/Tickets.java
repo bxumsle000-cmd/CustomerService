@@ -12,38 +12,16 @@ import java.time.LocalDateTime;
 
 /**
  * 工單，對應資料表 {@code tickets}。
- *
- * <h2>建立一筆新工單要填什麼</h2>
  * <ul>
  *   <li><b>必填</b>：{@code title}、{@code category}、{@code channel}、{@code assigneeId}</li>
  *   <li><b>可留空</b>：{@code customerName}、{@code contactPhone}、{@code description}</li>
- *   <li><b>不要自己填</b>：{@code ticketId}（資料庫發號）、{@code ticketNo}（資料庫算出來的）、
- *       {@code status}（自動補 IN_PROGRESS）、{@code createdAt} / {@code updatedAt}（callback 維護）</li>
+ *   <li><b>不要自己填</b>：{@code ticketId}、{@code ticketNo}、{@code status}、
+ *       {@code createdAt} / {@code updatedAt}</li>
  * </ul>
- *
- * <h2>新增用 builder，修改用 setter</h2>
- * <pre>
- * Tickets t = Tickets.builder()
- *         .title("詢問帳單")
- *         .category("帳單問題").channel("PHONE").assigneeId("CSC00001")
- *         .build();
- * </pre>
- * 修改<b>不要</b>用 builder：沒填的欄位是 null，拿去 {@code save()} 會整筆覆蓋回資料庫。
- * 要改就先 {@code findById} 撈出來再 setter。
- * <p>
- * <h2>排定的回電時間不在這裡</h2>
- * 以前這裡有一個 {@code followUpAt} 欄位，已經搬到 {@link FollowUps}。
- * 理由是那筆資料的主人是<b>客服</b>而不是工單：工單轉派給別人時，
- * 原本那個人排的回電不該跟著換人，個人備註更不該跟著送到別人眼前。
- * <p>
- * 資料庫的 {@code tickets.follow_up_at} 欄位目前<b>還在</b>（要等 V4 migration 才 DROP），
- * 但 Java 這邊已經不再對映它，所以從現在起那個欄位不會再被讀、也不會再被寫。
- * <p>
- * 欄位命名規則同 {@link Agents}：Java 用 camelCase，資料庫用 snake_case，靠 {@code @Column} 對接。
+ * 新增用 builder，修改先 {@code findById} 撈出來再 setter。
+ * 排定的回電時間放在 {@link FollowUps}，不在這裡。
  */
 @Data
-// @Data + @Builder 會讓無參數 constructor 消失，但 Hibernate 撈資料時一定要它，
-// 所以 @NoArgsConstructor（給 Hibernate）和 @AllArgsConstructor（給 builder）兩個都得補。
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
@@ -53,9 +31,7 @@ public class Tickets {
 
     /**
      * 工單流水號，內部主鍵，不對外顯示。{@code tickets.ticket_id}，INT IDENTITY。
-     * <p>
-     * <b>新增時不要填</b>，號碼由資料庫發，存檔後才有值。
-     * （型別用 Integer 不用 int：null 才分得出「還沒存過」和「主鍵真的是 0」。）
+     * <b>新增時不要填</b>，號碼由資料庫發。
      */
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -65,14 +41,7 @@ public class Tickets {
     /**
      * 對外顯示的工單編號，格式 TK-000001。
      * {@code tickets.ticket_no}，NOT NULL、<b>全表唯一</b>。
-     * <p>
-     * <b>不要自己填</b>：這一欄在資料庫是「計算欄位」，值由 {@code ticket_id} 推導
-     *（見 {@code V1__init_schema.sql}），Java 這邊只讀不寫——所以標了
-     * {@code insertable = false, updatable = false}，你就算 set 了也不會寫進資料庫。
-     * <p>
-     * {@code @Generated(event = INSERT)} 是告訴 Hibernate「這一欄的值是資料庫產生的」，
-     * INSERT 完會自動再發一次 SELECT 把算好的編號讀回來，
-     * 所以 {@code save()} 回來的物件就已經有 ticketNo 可用了。
+     * <b>不要自己填</b>：資料庫計算欄位，INSERT 後由 Hibernate 讀回。
      */
     @Generated(event = EventType.INSERT)
     @Column(name = "ticket_no", insertable = false, updatable = false)
@@ -153,12 +122,7 @@ public class Tickets {
     /**
      * INSERT 前補預設值：{@code createdAt} / {@code updatedAt} 補現在時間、
      * {@code status} 補 {@code IN_PROGRESS}，已經有值的不動。
-     * <p>
-     * Hibernate 自動呼叫（{@code @PrePersist}），<b>不要自己叫</b>。無參數、無回傳值。
-     * <p>
-     * 不靠資料庫 DEFAULT 的原因：Hibernate 的 INSERT 會列出所有欄位、等於明確送 NULL，
-     * SQL Server 的 DEFAULT 就被跳過，直接撞 NOT NULL。
-     * {@code withNano(0)} 則是因為欄位只存到秒，先自己截掉才不會跟資料庫的值對不起來。
+     * Hibernate 自動呼叫，<b>不要自己叫</b>。無參數、無回傳值。
      */
     @PrePersist
     void applyDefaults() {
@@ -170,15 +134,13 @@ public class Tickets {
             updatedAt = now;
         }
         if (status == null) {
-            status = "IN_PROGRESS";   // 新建工單一律是「處理中」
+            status = "IN_PROGRESS";
         }
     }
 
     /**
      * UPDATE 前把 {@code updatedAt} 更新為現在時間。
-     * <p>
-     * Hibernate 自動呼叫（{@code @PreUpdate}），<b>不要自己叫</b>。無參數、無回傳值。
-     * SQL Server 沒有 MySQL 那種 ON UPDATE CURRENT_TIMESTAMP，所以得由這裡負責。
+     * Hibernate 自動呼叫，<b>不要自己叫</b>。無參數、無回傳值。
      */
     @PreUpdate
     void touchUpdatedAt() {
