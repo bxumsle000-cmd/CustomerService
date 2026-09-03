@@ -21,6 +21,16 @@ import java.util.List;
  * 行事曆相關的 business logic：查月份回電、新增、改期、取消。
  * <p>
  * 一張工單只要時間點不同就能排多筆，所以一筆安排的身分是 {@code followUpId}，不是工單編號。
+ * <p>
+ * 方法一覽：
+ * <ul>
+ *   <li>{@link #monthlyFollowUps} —— 查自己某個月的所有回電安排，依時間排序</li>
+ *   <li>{@link #createFollowUp} —— 對某張工單新增一筆回電，同時間點不可重複</li>
+ *   <li>{@link #updateFollowUp} —— 改一筆回電的時間與備註，兩個欄位都覆蓋</li>
+ *   <li>{@link #deleteFollowUp} —— 取消一筆回電，刪不到也算成功（冪等）</li>
+ *   <li>{@code findTicket}（private）—— 用工單編號撈工單，查不到丟 404</li>
+ *   <li>{@code findMyFollowUp}（private）—— 撈自己的那一筆安排，兼權限檢查</li>
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor

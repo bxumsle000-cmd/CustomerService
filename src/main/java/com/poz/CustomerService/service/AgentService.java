@@ -22,6 +22,16 @@ import java.util.List;
  * <p>
  * 方法簽章上都沒有 agentId，「我是誰」一律由
  * {@link CurrentAgentProvider#currentAgentId()} 決定。
+ * <p>
+ * 方法一覽：
+ * <ul>
+ *   <li>{@link #login} —— 驗客服代號與密碼，成功回 token 並把狀態重設為 ONLINE</li>
+ *   <li>{@link #me} —— 回目前登入者的 agentId / name / status</li>
+ *   <li>{@link #findAll} —— 全部客服，依代號排序，轉派下拉用</li>
+ *   <li>{@link #updateMyStatus} —— 改自己的工作狀態，通話中不給改</li>
+ *   <li>{@code findAgentOrThrow}（private）—— 依代號撈客服，查不到丟 404</li>
+ *   <li>{@code invalidCredentials}（private）—— 產生「帳號或密碼錯誤」的例外</li>
+ * </ul>
  */
 @Service
 @RequiredArgsConstructor

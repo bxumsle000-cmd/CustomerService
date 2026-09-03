@@ -5,6 +5,7 @@ import com.poz.CustomerService.dto.ticket.CreateTicketRequest;
 import com.poz.CustomerService.dto.ticket.TicketDetailResponse;
 import com.poz.CustomerService.dto.ticket.TicketListItemResponse;
 import com.poz.CustomerService.dto.ticket.TicketPageResponse;
+import com.poz.CustomerService.service.TicketDetailService;
 import com.poz.CustomerService.service.TicketService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -12,7 +13,11 @@ import org.springframework.web.bind.annotation.*;
 
 /**
  * 工單與處理記錄的端點：列表、建立、詳情、狀態變更、轉派、新增留言。
- * business logic 一律放 {@link TicketService}。
+ * <p>
+ * business logic 分成兩個 Service，界線是「要不要先點進某一張工單」：
+ * 列表與建立在 {@link TicketService}，其餘（詳情頁上的動作）在
+ * {@link TicketDetailService}。路徑照舊全部掛在 {@code /api/tickets} 底下，
+ * 前端不受影響。
  */
 @RestController
 @RequestMapping("/api/tickets")
@@ -20,6 +25,7 @@ import org.springframework.web.bind.annotation.*;
 public class TicketController {
 
     private final TicketService ticketService;
+    private final TicketDetailService ticketDetailService;
 
     /**
      * 工單列表，GET /api/tickets/search。目前只吃分頁參數。
@@ -58,7 +64,7 @@ public class TicketController {
      */
     @GetMapping("/{ticketNo}/detail")
     public TicketDetailResponse detail(@PathVariable String ticketNo) {
-        return ticketService.detail(ticketNo);
+        return ticketDetailService.detail(ticketNo);
     }
 
     /**
@@ -71,7 +77,7 @@ public class TicketController {
     @PatchMapping("/{ticketNo}/changeStatus")
     public  TicketDetailResponse changeStatus(@PathVariable String ticketNo,
                                              @Valid @RequestBody ChangeStatusRequest request){
-        return  ticketService.changeStatus(ticketNo, request.status());
+        return  ticketDetailService.changeStatus(ticketNo, request.status());
     }
 
 
@@ -84,7 +90,7 @@ public class TicketController {
      */
     @PatchMapping("/{ticketNo}/assign")
     public  TicketDetailResponse assign(@PathVariable String ticketNo,@RequestParam String assignID){
-        return  ticketService.assign(ticketNo, assignID);
+        return  ticketDetailService.assign(ticketNo, assignID);
     }
 
     /**
@@ -96,6 +102,6 @@ public class TicketController {
      */
     @PatchMapping("/{ticketNo}/submit")
     public TicketDetailResponse submit(@PathVariable String ticketNo,@RequestParam String content){
-        return  ticketService.submitContent(ticketNo,content);
+        return  ticketDetailService.submitContent(ticketNo,content);
     }
 }

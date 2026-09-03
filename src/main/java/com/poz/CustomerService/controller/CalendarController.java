@@ -70,9 +70,10 @@ public class CalendarController {
 
     /**
      * 取消自己的某一筆回電安排，DELETE /api/calendar/followUps/{followUpId}。
+     * <p>
+     * 回 204，沒有 body。號碼不存在或不是自己的<b>也算成功</b>，不回 404。
      *
      * @param followUpId 路徑上的安排流水號
-     * @return 204，沒有 body。號碼不存在或不是自己的也算成功，不回 404
      */
     @DeleteMapping("/followUps/{followUpId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
