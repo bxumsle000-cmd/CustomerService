@@ -53,7 +53,7 @@ public class TicketController {
      * 工單詳情，GET /api/tickets/{ticketNo}/detail。
      *
      * @param ticketNo 路徑上的工單編號，格式 TK-XXXXXX
-     * @return 200，工單全欄位 + 處理記錄 timeline + 自己的回電安排；
+     * @return 200，工單全欄位 + 處理記錄 timeline；
      *         單號不存在回 404 / {@code TICKET_NOT_FOUND}
      */
     @GetMapping("/{ticketNo}/detail")

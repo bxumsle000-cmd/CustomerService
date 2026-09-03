@@ -43,16 +43,6 @@ public interface FollowUpsRepository extends JpaRepository<FollowUps, Integer> {
                                                   @Param("end") LocalDateTime end);
 
     /**
-     * 查「我對這張工單排了哪些回電」，由早到晚。
-     *
-     * @param agentId  行事曆的主人，例如 CSC00001
-     * @param ticketId 工單的<b>內部流水號</b>，不是 TK-000001 那種對外編號
-     * @return 這張單的所有安排，已排序；沒排過是空 list，不會是 null
-     */
-    List<FollowUps> findByAgentIdAndTicketIdOrderByFollowUpAtAscFollowUpIdAsc(
-            String agentId, Integer ticketId);
-
-    /**
      * 撈出「<b>我的</b>某一筆安排」，改期和取消都要先過這一關。
      *
      * @param followUpId 安排流水號，前端從月檢視的回應拿到的那個

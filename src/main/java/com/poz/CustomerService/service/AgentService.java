@@ -5,6 +5,7 @@ import com.poz.CustomerService.dto.agent.AgentResponse;
 import com.poz.CustomerService.dto.auth.LoginRequest;
 import com.poz.CustomerService.dto.auth.LoginResponse;
 import com.poz.CustomerService.dto.agent.UpdateAgentStatusRequest;
+import com.poz.CustomerService.dto.agent.UpdateCallStateRequest;
 import com.poz.CustomerService.exception.ApiException;
 import com.poz.CustomerService.repository.AgentsRepository;
 import com.poz.CustomerService.security.CurrentAgentProvider;
@@ -17,7 +18,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 
 /**
- * 客服相關的 business logic：登入、查自己、客服清單、變更工作狀態。
+ * 客服相關的 business logic：登入、查自己、客服清單、變更工作狀態、通話中狀態切換。
  * <p>
  * 方法簽章上都沒有 agentId，「我是誰」一律由
  * {@link CurrentAgentProvider#currentAgentId()} 決定。
@@ -116,6 +117,30 @@ public class AgentService {
         }
 
         agent.setStatus(newStatus);
+
+        return AgentResponse.from(agent);
+    }
+
+    /**
+     * 由通話事件切換「通話中」：接聽時設成 {@code ON_CALL}，掛斷時回到 {@code ONLINE}。
+     * <p>
+     * 這是<b>唯一</b>能把狀態寫成 {@code ON_CALL} 的入口，{@link #updateMyStatus} 的白名單裡沒有它。
+     * 掛斷時只有「目前真的是通話中」才會改回 {@code ONLINE}，避免重複掛斷
+     * 把客服自己設好的休息／午休洗掉。
+     *
+     * @param request 通話狀態，不可為 null；{@code true} 接聽、{@code false} 掛斷
+     * @return 改完之後的 agentId / name / status
+     * @throws ApiException 404 / {@code AGENT_NOT_FOUND}——登入中的代號在資料庫查不到
+     */
+    @Transactional
+    public AgentResponse updateMyCallState(UpdateCallStateRequest request) {
+        Agents agent = findAgentOrThrow(currentAgentProvider.currentAgentId());
+
+        if (request.inCall()) {
+            agent.setStatus(STATUS_ON_CALL);
+        } else if (STATUS_ON_CALL.equals(agent.getStatus())) {
+            agent.setStatus(STATUS_ONLINE);
+        }
 
         return AgentResponse.from(agent);
     }
