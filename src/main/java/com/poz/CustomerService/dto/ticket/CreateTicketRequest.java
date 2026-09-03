@@ -5,7 +5,7 @@ import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 
 /**
- * 建立工單時前端送上來的表單內容，對應 POST /api/tickets/create。
+ * 建立工單時前端送上來的表單內容，對應 POST /api/tickets。
  * <p>
  * 不含 ticketNo、ticketId 與建立者，那三個都由後端決定。
  *

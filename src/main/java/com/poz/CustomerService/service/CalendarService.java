@@ -112,16 +112,25 @@ public class CalendarService {
     /**
      * 改自己某一筆回電安排的時間或備註，兩個欄位都會被覆蓋。
      *
+     * @param ticketNo   這筆安排掛在哪張工單底下，格式 TK-XXXXXX
      * @param followUpId 要改的那一筆的流水號，必須是自己的
      * @param request    要改成的回電時間與備註
      * @return 改完的那一格事件
-     * @throws ApiException 404 / {@code FOLLOW_UP_NOT_FOUND}——號碼不存在或不是自己的；
-     *                      404 / {@code TICKET_NOT_FOUND}——安排指向的工單已不存在；
+     * @throws ApiException 404 / {@code TICKET_NOT_FOUND}——查無此單號；
+     *                      404 / {@code FOLLOW_UP_NOT_FOUND}——號碼不存在、不是自己的，
+     *                      或那一筆根本不屬於這張工單；
      *                      409 / {@code FOLLOW_UP_ALREADY_EXISTS}——那個時間點已經有另外一筆安排
      */
     @Transactional
-    public CalendarEventResponse updateFollowUp(Integer followUpId, FollowUpRequest request) {
+    public CalendarEventResponse updateFollowUp(String ticketNo, Integer followUpId,
+                                                FollowUpRequest request) {
+        Tickets ticket = findTicket(ticketNo);
         FollowUps followUp = findMyFollowUp(followUpId);
+
+        // 路徑上的工單跟這筆安排實際掛的工單要對得起來，否則就當作查無此安排
+        if (!followUp.getTicketId().equals(ticket.getTicketId())) {
+            throw ApiException.notFound("FOLLOW_UP_NOT_FOUND", "找不到這筆回電安排");
+        }
 
         // FollowUpIdNot：排除正在改的這一筆，否則只改備註會被誤判成重複排定
         if (followUpsRepository.existsByAgentIdAndTicketIdAndFollowUpAtAndFollowUpIdNot(
@@ -134,25 +143,26 @@ public class CalendarService {
         followUp.setFollowUpAt(request.followUpAt());
         followUp.setNote(request.note());
 
-        Tickets ticket = ticketsRepository.findById(followUp.getTicketId())
-                .orElseThrow(() -> ApiException.notFound(
-                        "TICKET_NOT_FOUND", "這筆安排對應的工單已不存在"));
-
         return CalendarEventResponse.from(followUp, ticket);
     }
 
     /**
      * 取消自己的某一筆回電安排，把那一列刪掉。
-     * 號碼不存在或不是自己的也算成功，不丟 404（冪等）。
+     * 單號不存在、號碼不存在、不是自己的、或那一筆不屬於這張工單，都算成功，
+     * 不丟 404（冪等）。
      *
+     * @param ticketNo   這筆安排掛在哪張工單底下，格式 TK-XXXXXX
      * @param followUpId 要取消的那一筆的流水號
      */
     @Transactional
-    public void deleteFollowUp(Integer followUpId) {
+    public void deleteFollowUp(String ticketNo, Integer followUpId) {
         String me = currentAgentProvider.currentAgentId();
 
-        followUpsRepository.findByFollowUpIdAndAgentId(followUpId, me)
-                .ifPresent(followUpsRepository::delete);
+        // 單號不存在、安排不是自己的、或那筆安排根本不屬於這張工單，一律當作沒事發生
+        ticketsRepository.findByTicketNo(ticketNo).ifPresent(ticket ->
+                followUpsRepository.findByFollowUpIdAndAgentId(followUpId, me)
+                        .filter(followUp -> followUp.getTicketId().equals(ticket.getTicketId()))
+                        .ifPresent(followUpsRepository::delete));
     }
 
     // ------------------------------------------------------------------

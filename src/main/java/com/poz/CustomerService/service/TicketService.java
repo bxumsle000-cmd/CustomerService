@@ -15,6 +15,9 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDateTime;
+import java.util.Set;
+
 /**
  * 工單的 business logic：首頁列表與建立工單。
  * <p>
@@ -51,23 +54,52 @@ public class TicketService {
     /** 每頁筆數上限。 */
     private static final int MAX_PAGE_SIZE = 50;
 
-    /** 列表預設排序：依更新時間由新到舊。 */
-    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "updatedAt");
+    /**
+     * 列表預設排序：依更新時間由新到舊。
+     * <p>
+     * 後面再接 {@code ticketId} 是為了讓排序穩定。{@code updated_at} 是 DATETIME2(0)、
+     * 只存到秒，同一秒更新的多筆工單前後順序不固定，翻頁時同一筆可能出現兩次、
+     * 或整個被跳過。補一個唯一且不會變的欄位當第二順位就沒這個問題。
+     */
+    private static final Sort DEFAULT_SORT = Sort.by(Sort.Direction.DESC, "updatedAt")
+            .and(Sort.by(Sort.Direction.DESC, "ticketId"));
+
+    /** 可以拿來篩選的狀態，必須與 {@code CK_tickets_status} 一致。 */
+    private static final Set<String> ALLOWED_STATUS = Set.of("IN_PROGRESS", "PENDING", "RESOLVED");
 
     // ------------------------------------------------------------------
     // 對外的方法
     // ------------------------------------------------------------------
 
     /**
-     * 工單列表，目前不吃篩選條件，一律回全部工單。
+     * 工單列表，六個篩選條件全部選填，沒帶的就不篩。
+     * <p>
+     * 除了 {@code createdFrom} 之外都是<b>精確比對</b>：篩選欄要打完整的值。
+     * 姓名要連稱謂一起打（資料庫存的是「王小明先生」這種完整字串），
+     * 電話和單號也不能只打一半。
      *
-     * @param page 頁碼，從 1 開始
-     * @param size 每頁筆數，1 到 {@value #MAX_PAGE_SIZE}
+     * @param ticketNo     工單編號，完整的 TK-XXXXXX；null 表示不篩
+     * @param customerName 客戶姓名；null 表示不篩
+     * @param contactPhone 聯絡電話；null 表示不篩
+     * @param assigneeId   負責客服代號；null 表示不篩
+     * @param status       處理狀態，IN_PROGRESS / PENDING / RESOLVED；null 表示不篩
+     * @param createdFrom  只要這個時間點之後建立的；null 表示不限時間。
+     *                     「近 7 天」那種相對區間由前端自己換算成絕對時間再送過來
+     * @param page         頁碼，從 1 開始
+     * @param size         每頁筆數，1 到 {@value #MAX_PAGE_SIZE}
      * @return 這一頁的工單與分頁資訊；查無資料時 content 是空 list
-     * @throws ApiException 400 / {@code VALIDATION_ERROR}——page 或 size 超出範圍
+     * @throws ApiException 400 / {@code VALIDATION_ERROR}——page、size 超出範圍，
+     *                      或 status 不是那三個值之一
      */
     @Transactional(readOnly = true)
-    public TicketPageResponse search(int page, int size) {
+    public TicketPageResponse search(String ticketNo,
+                                     String customerName,
+                                     String contactPhone,
+                                     String assigneeId,
+                                     String status,
+                                     LocalDateTime createdFrom,
+                                     int page,
+                                     int size) {
         if (page < 1) {
             throw ApiException.badRequest("VALIDATION_ERROR", "頁碼不可小於 1");
         }
@@ -76,9 +108,21 @@ public class TicketService {
                     "每頁筆數必須介於 1 到 " + MAX_PAGE_SIZE);
         }
 
+        // 不擋的話，打錯的狀態會安靜地回 0 筆，看不出來是自己拼錯還是真的沒資料
+        if (status != null && !ALLOWED_STATUS.contains(status)) {
+            throw ApiException.badRequest("VALIDATION_ERROR",
+                    "狀態只能是 IN_PROGRESS / PENDING / RESOLVED");
+        }
+
         // PageRequest 的頁碼從 0 開始，所以這裡減 1
-        Page<Tickets> result =
-                ticketsRepository.findAll(PageRequest.of(page - 1, size, DEFAULT_SORT));
+        Page<Tickets> result = ticketsRepository.search(
+                ticketNo,
+                customerName,
+                contactPhone,
+                assigneeId,
+                status,
+                createdFrom,
+                PageRequest.of(page - 1, size, DEFAULT_SORT));
 
         return TicketPageResponse.from(result);
     }

@@ -6,7 +6,7 @@ import org.springframework.data.domain.Page;
 import java.util.List;
 
 /**
- * 工單列表的回應，對應 GET /api/tickets/search。
+ * 工單列表的回應，對應 GET /api/tickets。
  *
  * @param content       這一頁的工單；沒有符合條件的資料時是空 list，不會是 null
  * @param page          目前頁碼，<b>從 1 開始</b>

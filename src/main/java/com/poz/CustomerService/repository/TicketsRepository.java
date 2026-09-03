@@ -30,41 +30,36 @@ public interface TicketsRepository extends JpaRepository<Tickets, Integer> {
      * <p>
      * 每個條件都寫成「{@code 參數 is null} 就整條放行」，所以呼叫端<b>不想篩的欄位傳
      * null 就好</b>，不必為了不同的條件組合各寫一支查詢。注意傳空字串<b>不等於</b>
-     * 不篩——{@code like '%%'} 會把 {@code null} 的資料列排除掉，
-     * 空字串要在 Service 先轉成 null。
+     * 不篩——那會變成「查值剛好是空字串的資料列」，一筆都撈不到。
+     * 呼叫端要自己確保「沒篩的欄位」進來時就是 null。
      * <p>
-     * 四個 {@code ...Like} 參數收的是<b>已經包好萬用字元的 pattern</b>（例如
-     * {@code %測試%}），不是原始的關鍵字。包 {@code %} 的工作交給 Service，
-     * 這裡<b>刻意不用 JPQL 的 concat()</b>：SQL Server dialect 會把它轉成
-     * {@code cast(? as varchar(max))}，varchar 存不了中文，中文條件會全部查不到。
-     * 參數直接送進來則是 nvarchar（mssql-jdbc 預設），中文才不會被吃掉。
-     * <p>
-     * SQL Server 預設定序不分大小寫，所以不必額外套 {@code lower()}。
-     * 前面帶萬用字元的 {@code like '%xxx%'} 吃不到索引，這是模糊查本身的限制。
+     * 除了 {@code createdFrom} 之外全部是<b>精確比對</b>：篩選欄要打完整的值，
+     * 打一半查不到。SQL Server 預設定序不分大小寫，所以 {@code csc00001} 一樣撈得到
+     * {@code CSC00001}。精確比對吃得到 {@code IX_tickets_assignee_status_created} 索引。
      *
-     * @param ticketNoLike     工單編號的 like pattern，例如 %TK-0001%；null 表示不篩
-     * @param customerNameLike 客戶姓名的 like pattern；null 表示不篩
-     * @param contactPhoneLike 聯絡電話的 like pattern；null 表示不篩
-     * @param assigneeIdLike   負責客服代號的 like pattern；null 表示不篩
-     * @param status           處理狀態，<b>精確</b>比對；null 表示不篩（對應「全部」tab）
-     * @param createdFrom      只要這個時間點<b>之後</b>建立的；null 表示不限時間
-     * @param pageable         分頁與排序，由 Service 決定
+     * @param ticketNo     工單編號，完整的 TK-XXXXXX；null 表示不篩
+     * @param customerName 客戶姓名，要跟資料庫存的完全一樣（含先生／小姐）；null 表示不篩
+     * @param contactPhone 聯絡電話，完整號碼；null 表示不篩
+     * @param assigneeId   負責客服代號；null 表示不篩
+     * @param status       處理狀態；null 表示不篩（對應「全部」tab）
+     * @param createdFrom  只要這個時間點<b>之後</b>建立的；null 表示不限時間
+     * @param pageable     分頁與排序，由 Service 決定
      * @return 這一頁的工單與總筆數；沒有符合的資料時 content 是空 list
      */
     @Query("""
             select t
             from Tickets t
-            where (:ticketNoLike is null or t.ticketNo like :ticketNoLike)
-              and (:customerNameLike is null or t.customerName like :customerNameLike)
-              and (:contactPhoneLike is null or t.contactPhone like :contactPhoneLike)
-              and (:assigneeIdLike is null or t.assigneeId like :assigneeIdLike)
+            where (:ticketNo is null or t.ticketNo = :ticketNo)
+              and (:customerName is null or t.customerName = :customerName)
+              and (:contactPhone is null or t.contactPhone = :contactPhone)
+              and (:assigneeId is null or t.assigneeId = :assigneeId)
               and (:status is null or t.status = :status)
               and (:createdFrom is null or t.createdAt >= :createdFrom)
             """)
-    Page<Tickets> search(@Param("ticketNoLike") String ticketNoLike,
-                         @Param("customerNameLike") String customerNameLike,
-                         @Param("contactPhoneLike") String contactPhoneLike,
-                         @Param("assigneeIdLike") String assigneeIdLike,
+    Page<Tickets> search(@Param("ticketNo") String ticketNo,
+                         @Param("customerName") String customerName,
+                         @Param("contactPhone") String contactPhone,
+                         @Param("assigneeId") String assigneeId,
                          @Param("status") String status,
                          @Param("createdFrom") LocalDateTime createdFrom,
                          Pageable pageable);
