@@ -72,9 +72,9 @@ public class TicketService {
     // ------------------------------------------------------------------
 
     /**
-     * 工單列表，六個篩選條件全部選填，沒帶的就不篩。
+     * 工單列表，七個篩選條件全部選填，沒帶的就不篩。
      * <p>
-     * 除了 {@code createdFrom} 之外都是<b>精確比對</b>：篩選欄要打完整的值。
+     * 除了 {@code createdFrom} / {@code createdTo} 之外都是<b>精確比對</b>：篩選欄要打完整的值。
      * 姓名要連稱謂一起打（資料庫存的是「王小明先生」這種完整字串），
      * 電話和單號也不能只打一半。
      *
@@ -83,8 +83,11 @@ public class TicketService {
      * @param contactPhone 聯絡電話；null 表示不篩
      * @param assigneeId   負責客服代號；null 表示不篩
      * @param status       處理狀態，IN_PROGRESS / PENDING / RESOLVED；null 表示不篩
-     * @param createdFrom  只要這個時間點之後建立的；null 表示不限時間。
+     * @param createdFrom  區間起點，建立時間 &gt;= 這個時間點；null 表示不限起點。
      *                     「近 7 天」那種相對區間由前端自己換算成絕對時間再送過來
+     * @param createdTo    區間終點，建立時間 &lt;= 這個時間點（<b>含</b>邊界）；null 表示不限終點。
+     *                     想查整個 9/30 就送 {@code 2026-09-30T23:59:59}。
+     *                     起點晚於終點<b>不會</b>丟 400，就是回 0 筆
      * @param page         頁碼，從 1 開始
      * @param size         每頁筆數，1 到 {@value #MAX_PAGE_SIZE}
      * @return 這一頁的工單與分頁資訊；查無資料時 content 是空 list
@@ -98,6 +101,7 @@ public class TicketService {
                                      String assigneeId,
                                      String status,
                                      LocalDateTime createdFrom,
+                                     LocalDateTime createdTo,
                                      int page,
                                      int size) {
         if (page < 1) {
@@ -122,6 +126,7 @@ public class TicketService {
                 assigneeId,
                 status,
                 createdFrom,
+                createdTo,
                 PageRequest.of(page - 1, size, DEFAULT_SORT));
 
         return TicketPageResponse.from(result);

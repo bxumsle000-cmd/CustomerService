@@ -35,17 +35,20 @@ public class TicketController {
     private final TicketDetailService ticketDetailService;
 
     /**
-     * 工單列表，GET /api/tickets。六個篩選條件全部選填，沒帶就不篩。
+     * 工單列表，GET /api/tickets。七個篩選條件全部選填，沒帶就不篩。
      * <p>
-     * 除了 createdFrom 之外都是精確比對，篩選欄要打完整的值。
+     * 除了 createdFrom / createdTo 之外都是精確比對，篩選欄要打完整的值。
      *
      * @param ticketNo     工單編號，完整的 TK-XXXXXX；沒帶就不篩
      * @param customerName 客戶姓名，要連稱謂一起打；沒帶就不篩
      * @param contactPhone 聯絡電話，完整號碼；沒帶就不篩
      * @param assigneeId   負責客服代號；沒帶就不篩
      * @param status       處理狀態，IN_PROGRESS / PENDING / RESOLVED；沒帶就不篩
-     * @param createdFrom  只要這個時間點之後建立的，格式 2026-09-01T00:00:00；
-     *                     沒帶就不限時間。「近 7 天」由前端自己換算成絕對時間
+     * @param createdFrom  建立時間區間的起點（含），格式 2026-09-01T00:00:00；
+     *                     沒帶就不限起點。「近 7 天」由前端自己換算成絕對時間
+     * @param createdTo    建立時間區間的終點（含），格式 2026-09-30T23:59:59；
+     *                     沒帶就不限終點。要查整天記得打到 23:59:59，只打日期
+     *                     會被當成當天 00:00:00，那天的資料一筆都撈不到
      * @param page         頁碼，從 1 開始，沒帶就是第 1 頁
      * @param size         每頁筆數，上限 50，沒帶就是 10 筆
      * @return 200，這一頁的工單 + 分頁資訊；
@@ -60,10 +63,12 @@ public class TicketController {
             @RequestParam(required = false) String status,
             @RequestParam(required = false)
             @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime createdFrom,
+            @RequestParam(required = false)
+            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime createdTo,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
         return ticketService.search(ticketNo, customerName, contactPhone,
-                assigneeId, status, createdFrom, page, size);
+                assigneeId, status, createdFrom, createdTo, page, size);
     }
 
     /**

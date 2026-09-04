@@ -54,7 +54,7 @@ class TicketsRepositorySearchTest {
 
     @Test
     void allNull_noFilter() {
-        Page<Tickets> p = repo.search(null, null, null, null, null, null, PageRequest.of(0, 10, SORT));
+        Page<Tickets> p = repo.search(null, null, null, null, null, null, null, PageRequest.of(0, 10, SORT));
         System.out.println("[allNull] totalElements=" + p.getTotalElements());
         assertTrue(p.getTotalElements() >= 0);
     }
@@ -64,24 +64,44 @@ class TicketsRepositorySearchTest {
         seed();
 
         // 姓名精確：連稱謂一起打才會中，兩筆同名
-        assertEquals(2, repo.search(null, "測試甲先生", null, null, null, null, PAGE).getTotalElements());
+        assertEquals(2, repo.search(null, "測試甲先生", null, null, null, null, null, PAGE).getTotalElements());
         // 電話精確：完整號碼只會中一筆
-        assertEquals(1, repo.search(null, null, "0911-000-111", null, null, null, PAGE).getTotalElements());
+        assertEquals(1, repo.search(null, null, "0911-000-111", null, null, null, null, PAGE).getTotalElements());
         // 姓名 + 狀態一起下
-        assertEquals(1, repo.search(null, "測試甲先生", null, null, "PENDING", null, PAGE).getTotalElements());
+        assertEquals(1, repo.search(null, "測試甲先生", null, null, "PENDING", null, null, PAGE).getTotalElements());
         // 客服代號精確
-        assertTrue(repo.search(null, "測試甲先生", null, "CSC00001", null, null, PAGE).getTotalElements() == 2);
+        assertTrue(repo.search(null, "測試甲先生", null, "CSC00001", null, null, null, PAGE).getTotalElements() == 2);
         // 時間：未來的時間點一筆都撈不到
         assertEquals(0, repo.search(null, "測試甲先生", null, null, null,
-                LocalDateTime.now().plusDays(1), PAGE).getTotalElements());
+                LocalDateTime.now().plusDays(1), null, PAGE).getTotalElements());
+    }
+
+    @Test
+    void 建立時間區間() {
+        seed();
+        LocalDateTime now = LocalDateTime.now();
+
+        // 只給終點：未來的終點撈得到，過去的終點撈不到
+        assertEquals(2, repo.search(null, "測試甲先生", null, null, null,
+                null, now.plusDays(1), PAGE).getTotalElements());
+        assertEquals(0, repo.search(null, "測試甲先生", null, null, null,
+                null, now.minusDays(1), PAGE).getTotalElements());
+
+        // 起點終點都給，種子資料落在區間內
+        assertEquals(2, repo.search(null, "測試甲先生", null, null, null,
+                now.minusDays(1), now.plusDays(1), PAGE).getTotalElements());
+
+        // 起點晚於終點不報錯，就是回 0 筆
+        assertEquals(0, repo.search(null, "測試甲先生", null, null, null,
+                now.plusDays(1), now.minusDays(1), PAGE).getTotalElements());
     }
 
     @Test
     void 打一半查不到_這是精確比對的預期行為() {
         seed();
-        assertEquals(0, repo.search(null, "測試甲", null, null, null, null, PAGE).getTotalElements(),
+        assertEquals(0, repo.search(null, "測試甲", null, null, null, null, null, PAGE).getTotalElements(),
                 "姓名少了稱謂就查不到");
-        assertEquals(0, repo.search(null, null, "0911", null, null, null, PAGE).getTotalElements(),
+        assertEquals(0, repo.search(null, null, "0911", null, null, null, null, PAGE).getTotalElements(),
                 "電話只打前四碼查不到");
     }
 
@@ -90,8 +110,8 @@ class TicketsRepositorySearchTest {
         seed();
         // 不寫死筆數：資料庫裡本來就可能有其他 CSC00001 的工單。
         // 只比對「大寫查」跟「小寫查」的結果一不一樣。
-        long upper = repo.search(null, null, null, "CSC00001", null, null, PAGE).getTotalElements();
-        long lower = repo.search(null, null, null, "csc00001", null, null, PAGE).getTotalElements();
+        long upper = repo.search(null, null, null, "CSC00001", null, null, null, PAGE).getTotalElements();
+        long lower = repo.search(null, null, null, "csc00001", null, null, null, PAGE).getTotalElements();
         System.out.println("[collation] CSC00001=" + upper + " csc00001=" + lower);
         assertTrue(upper >= 3, "種子資料至少 3 筆");
         assertEquals(upper, lower);
@@ -104,45 +124,45 @@ class TicketsRepositorySearchTest {
     @Test
     void 空字串與空白要當成沒填() {
         seed();
-        long all = ticketService.search(null, null, null, null, null, null, 1, 50).totalElements();
+        long all = ticketService.search(null, null, null, null, null, null, null, 1, 50).totalElements();
 
         // 空字串
-        assertEquals(all, ticketService.search("", "", "", "", "", null, 1, 50).totalElements());
+        assertEquals(all, ticketService.search("", "", "", "", "", null, null, 1, 50).totalElements());
         // 全是空白
-        assertEquals(all, ticketService.search("  ", "  ", "  ", "  ", "  ", null, 1, 50).totalElements());
+        assertEquals(all, ticketService.search("  ", "  ", "  ", "  ", "  ", null, null, 1, 50).totalElements());
     }
 
     @Test
     void 前後空白會被去掉() {
         seed();
         TicketPageResponse trimmed =
-                ticketService.search(null, "  測試甲先生  ", null, null, null, null, 1, 50);
+                ticketService.search(null, "  測試甲先生  ", null, null, null, null, null, 1, 50);
         assertEquals(2, trimmed.totalElements(), "前後空白不該影響比對結果");
     }
 
     @Test
     void 不合法的狀態要被擋下來而不是安靜回0筆() {
         RuntimeException e = assertThrows(RuntimeException.class,
-                () -> ticketService.search(null, null, null, null, "FOO", null, 1, 50));
+                () -> ticketService.search(null, null, null, null, "FOO", null, null, 1, 50));
         System.out.println("[bad status] " + e.getMessage());
     }
 
     @Test
     void 分頁參數的邊界() {
         assertThrows(RuntimeException.class,
-                () -> ticketService.search(null, null, null, null, null, null, 0, 10));
+                () -> ticketService.search(null, null, null, null, null, null, null, 0, 10));
         assertThrows(RuntimeException.class,
-                () -> ticketService.search(null, null, null, null, null, null, 1, 51));
+                () -> ticketService.search(null, null, null, null, null, null, null, 1, 51));
         // 上限 50 剛好可以
         assertDoesNotThrow(
-                () -> ticketService.search(null, null, null, null, null, null, 1, 50));
+                () -> ticketService.search(null, null, null, null, null, null, null, 1, 50));
     }
 
     @Test
     void 分頁切割正確() {
         seed();
-        TicketPageResponse p1 = ticketService.search(null, "測試甲先生", null, null, null, null, 1, 1);
-        TicketPageResponse p2 = ticketService.search(null, "測試甲先生", null, null, null, null, 2, 1);
+        TicketPageResponse p1 = ticketService.search(null, "測試甲先生", null, null, null, null, null, 1, 1);
+        TicketPageResponse p2 = ticketService.search(null, "測試甲先生", null, null, null, null, null, 2, 1);
         assertEquals(2, p1.totalElements());
         assertEquals(2, p1.totalPages());
         assertEquals(1, p1.content().size());
