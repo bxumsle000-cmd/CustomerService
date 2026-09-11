@@ -1,0 +1,55 @@
+@startuml c4-service-agent
+!include <C4/C4_Component>
+!pragma layout smetana
+skinparam defaultFontName "Microsoft JhengHei"
+scale 1.5
+skinparam wrapWidth 320
+
+title AgentService — 元件圖（登入、客服清單、工作狀態）
+
+Boundary(ctl, "Controller") {
+    Component(authCtl, "AuthController", "/api/auth", "POST login\nGET me")
+    Component(agentCtl, "AgentController", "/api/agents", "GET /\nPATCH me/status\nPATCH me/call")
+}
+
+Boundary(reqDto, "Request DTO（進）") {
+    Component(loginReq, "LoginRequest", "record", "agentId\npassword")
+    Component(statusReq, "UpdateAgentStatusRequest", "record", "status\n（ONLINE / BREAK / RESTROOM / LUNCH / MEETING）")
+    Component(callReq, "UpdateCallStateRequest", "record", "inCall（true 接聽／false 掛斷）")
+}
+
+Component(svc, "AgentService", "@Service", "login(LoginRequest) → LoginResponse\nme() → AgentResponse\nfindAll() → List<AgentResponse>\nupdateMyStatus(UpdateAgentStatusRequest) → AgentResponse\nupdateMyCallState(UpdateCallStateRequest) → AgentResponse\n\n私有：findAgentOrThrow、invalidCredentials")
+
+Boundary(resDto, "Response DTO（出）") {
+    Component(loginRes, "LoginResponse", "record", "token（目前是假的 DEV-TOKEN）\nagent：AgentResponse")
+    Component(agentRes, "AgentResponse", "record", "agentId\nname\nstatus\n\nAgentResponse.from(Agents)")
+}
+
+Boundary(deps, "依賴") {
+    Component(repo, "AgentsRepository", "JpaRepository<Agents, String>", "findById\nfindAll(Sort.by(agentId))")
+    Component(entity, "Agents", "@Entity agents", "agentId、name、passwordHash、status")
+    Component(pwd, "PasswordEncoder", "BCrypt", "matches(明文, 雜湊)")
+    Component(cur, "CurrentAgentProvider", "security", "currentAgentId()\n開發階段固定 CSC00001")
+}
+
+Component(ex, "ApiException", "可能丟出的錯誤", "401 INVALID_CREDENTIALS：代號不存在或密碼錯誤\n404 AGENT_NOT_FOUND：登入中的代號查不到\n400 AGENT_ON_CALL：通話中不可改狀態")
+
+Rel(authCtl, svc, "login / me")
+Rel(agentCtl, svc, "findAll / updateMyStatus / updateMyCallState")
+Rel(loginReq, svc, "login")
+Rel(statusReq, svc, "updateMyStatus")
+Rel(callReq, svc, "updateMyCallState")
+
+Rel(svc, loginRes, "login 回傳")
+Rel(svc, agentRes, "其餘方法回傳")
+Rel_Neighbor(loginRes, agentRes, "包含")
+
+Rel(svc, repo, "查客服、列清單")
+Rel(repo, entity, "回傳")
+Rel(svc, entity, "setStatus()\n交易結束自動 UPDATE")
+Rel(svc, pwd, "login 驗密碼")
+Rel(svc, cur, "me / updateMyStatus / updateMyCallState")
+Rel(svc, ex, "throw")
+
+SHOW_LEGEND()
+@enduml

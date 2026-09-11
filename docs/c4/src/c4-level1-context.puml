@@ -1,0 +1,21 @@
+@startuml c4-level1-context
+!include <C4/C4_Context>
+!pragma layout smetana
+skinparam defaultFontName "Microsoft JhengHei"
+scale 1.5
+skinparam wrapWidth 320
+
+title 電話客服工單系統 — 系統脈絡圖（Level 1：System Context）
+
+Person_Ext(customer, "客戶", "打電話進線反映問題的客戶，\n不直接使用本系統")
+Person(agent, "客服人員", "接聽電話、建立與處理工單、\n安排回電的客服")
+Person(dev, "開發者", "透過 Swagger UI 呼叫並測試後端 API，\n用 SSMS 查看資料庫")
+
+System(cs, "電話客服工單系統", "客服工作台 + REST API + 資料庫。\n管理客服帳號與工作狀態、工單、\n處理記錄、回電行事曆")
+
+Rel(customer, agent, "電話進線", "電話")
+Rel(agent, cs, "登入、切換工作狀態、\n建立／查詢／轉派工單、安排回電", "瀏覽器 HTTP")
+Rel(dev, cs, "呼叫 /api/... 端點驗證行為", "Swagger UI / HTTP")
+
+SHOW_LEGEND()
+@enduml

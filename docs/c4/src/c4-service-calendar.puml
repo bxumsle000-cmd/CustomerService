@@ -1,0 +1,52 @@
+@startuml c4-service-calendar
+!include <C4/C4_Component>
+!pragma layout smetana
+skinparam defaultFontName "Microsoft JhengHei"
+scale 1.5
+skinparam wrapWidth 320
+
+title CalendarService — 元件圖（回電行事曆）
+
+Component(followCtl, "FollowUpController", "/api", "GET /calendar?year&month\nPOST /tickets/{ticketNo}/followUps\nPATCH /tickets/{ticketNo}/followUps/{followUpId}\nDELETE /tickets/{ticketNo}/followUps/{followUpId}")
+
+Boundary(reqDto, "Request（進）") {
+    Component(monthParams, "year / month（無 DTO）", "@RequestParam", "year 2015〜2050\nmonth 1〜12")
+    Component(followReq, "FollowUpRequest", "record", "followUpAt（必填）\nnote（選填，最多 200 字）")
+}
+
+Component(svc, "CalendarService", "@Service", "monthlyFollowUps(year, month) → CalendarMonthResponse\ncreateFollowUp(ticketNo, FollowUpRequest) → CalendarEventResponse\nupdateFollowUp(ticketNo, followUpId, FollowUpRequest) → CalendarEventResponse\ndeleteFollowUp(ticketNo, followUpId) → void（查無也算成功）\n\n私有：findTicket、findMyFollowUp\n只看得到、改得到「自己的」安排")
+
+Boundary(resDto, "Response DTO（出）") {
+    Component(monthRes, "CalendarMonthResponse", "record", "year、month\nevents：List<CalendarEventResponse>")
+    Component(eventRes, "CalendarEventResponse", "record", "followUpId、ticketNo、title、customerName、\ncontactPhone、status、followUpAt、note\n\nCalendarEventResponse.from(FollowUps, Tickets)")
+}
+
+Boundary(deps, "依賴") {
+    Component(followRepo, "FollowUpsRepository", "JpaRepository<FollowUps, Integer>", "findMonthlyEvents — JPQL 直接 select 成 CalendarEventResponse\nfindByFollowUpIdAndAgentId\nexistsByAgentIdAndTicketIdAndFollowUpAt\nexistsBy...AndFollowUpIdNot（改期時排除自己）\nsave / delete")
+    Component(ticketsRepo, "TicketsRepository", "JpaRepository<Tickets, Integer>", "findByTicketNo")
+    Component(followEntity, "FollowUps", "@Entity follow_ups", "agentId、ticketId、followUpAt、note")
+    Component(ticketEntity, "Tickets", "@Entity tickets", "只讀，用來組回應與比對 ticketId")
+    Component(cur, "CurrentAgentProvider", "security", "currentAgentId()")
+}
+
+Component(ex, "ApiException", "可能丟出的錯誤", "400 VALIDATION_ERROR：年份或月份超出範圍\n404 TICKET_NOT_FOUND：單號不存在\n404 FOLLOW_UP_NOT_FOUND：不存在、不是自己的、或不屬於這張工單\n409 FOLLOW_UP_ALREADY_EXISTS：同一工單同一時間已排過")
+
+Rel(followCtl, svc, "monthlyFollowUps / createFollowUp / updateFollowUp / deleteFollowUp")
+Rel(monthParams, svc, "monthlyFollowUps")
+Rel(followReq, svc, "createFollowUp / updateFollowUp")
+
+Rel(svc, monthRes, "monthlyFollowUps 回傳")
+Rel(svc, eventRes, "create / update 回傳")
+Rel_Neighbor(monthRes, eventRes, "events 包含多筆")
+Rel(followRepo, eventRes, "findMonthlyEvents 直接回傳")
+
+Rel(svc, followRepo, "查、防重複、存、刪")
+Rel(followRepo, followEntity, "回傳／儲存")
+Rel(svc, followEntity, "改期、改備註")
+Rel(svc, ticketsRepo, "findByTicketNo")
+Rel(ticketsRepo, ticketEntity, "回傳")
+Rel(svc, cur, "所有方法都先問「我是誰」")
+Rel(svc, ex, "throw")
+
+SHOW_LEGEND()
+@enduml

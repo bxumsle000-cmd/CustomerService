@@ -1,0 +1,50 @@
+@startuml c4-service-ticket
+!include <C4/C4_Component>
+!pragma layout smetana
+skinparam defaultFontName "Microsoft JhengHei"
+scale 1.5
+skinparam wrapWidth 320
+
+title TicketService — 元件圖（工單列表、建立工單）
+
+Component(ticketCtl, "TicketController", "/api/tickets", "GET /（列表）\nPOST /（建立）")
+
+Boundary(reqDto, "Request（進）") {
+    Component(searchParams, "查詢參數（無 DTO）", "@RequestParam", "ticketNo、customerName、contactPhone、\nassigneeId、status、createdFrom、createdTo、\npage（預設 1）、size（預設 10，上限 50）")
+    Component(createReq, "CreateTicketRequest", "record", "title、customerName、contactPhone、\ncategory、assigneeId（選填）、description、\nstatus、channel（PHONE / Agent）")
+}
+
+Component(svc, "TicketService", "@Service", "search(7 個篩選條件, page, size) → TicketPageResponse\ncreate(CreateTicketRequest) → TicketListItemResponse\n\n私有：resolveAssignee（沒指定就是自己）\n排序：updatedAt DESC, ticketId DESC")
+
+Boundary(resDto, "Response DTO（出）") {
+    Component(pageRes, "TicketPageResponse", "record", "content：List<TicketListItemResponse>\npage、size、totalElements、totalPages\n\nTicketPageResponse.from(Page<Tickets>)")
+    Component(itemRes, "TicketListItemResponse", "record", "ticketNo、title、customerName、contactPhone、\nstatus、assigneeId、createdAt、updatedAt\n\nTicketListItemResponse.from(Tickets)")
+}
+
+Boundary(deps, "依賴") {
+    Component(ticketsRepo, "TicketsRepository", "JpaRepository<Tickets, Integer>", "search(...) — 動態條件 JPQL + Pageable\nsave(Tickets)")
+    Component(agentsRepo, "AgentsRepository", "JpaRepository<Agents, String>", "existsById（驗轉派對象）")
+    Component(entity, "Tickets", "@Entity tickets", "ticketNo 由資料庫計算欄位產生，\nINSERT 後讀回")
+    Component(cur, "CurrentAgentProvider", "security", "currentAgentId()")
+    Component(detailSvc, "TicketDetailService", "@Service", "writeComment\nwriteStatusSetComment\nwriteAssignComment\n（建單時寫處理記錄，同一個交易）")
+}
+
+Component(ex, "ApiException", "可能丟出的錯誤", "400 VALIDATION_ERROR：page < 1、size 超出 1〜50、\nstatus 不是 IN_PROGRESS / PENDING / RESOLVED\n404 AGENT_NOT_FOUND：指定的轉派對象不存在")
+
+Rel(ticketCtl, svc, "search / create")
+Rel(searchParams, svc, "search")
+Rel(createReq, svc, "create")
+
+Rel(svc, pageRes, "search 回傳")
+Rel(svc, itemRes, "create 回傳")
+Rel_Neighbor(pageRes, itemRes, "content 包含多筆")
+
+Rel(svc, ticketsRepo, "search / save")
+Rel(ticketsRepo, entity, "回傳")
+Rel(svc, agentsRepo, "existsById")
+Rel(svc, cur, "建單者 = 目前登入者")
+Rel(svc, detailSvc, "建單後寫 2〜4 筆處理記錄")
+Rel(svc, ex, "throw")
+
+SHOW_LEGEND()
+@enduml

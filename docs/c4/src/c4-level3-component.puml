@@ -1,0 +1,77 @@
+@startuml c4-level3-component
+!include <C4/C4_Component>
+!pragma layout smetana
+skinparam defaultFontName "Microsoft JhengHei"
+scale 1.5
+skinparam wrapWidth 320
+
+title 後端 REST API — 元件圖（Level 3：Component）
+
+Person(dev, "開發者", "Swagger UI")
+Container(spa, "客服工作台 SPA", "HTML / JS", "規劃中：之後改呼叫這些端點")
+
+Container_Boundary(api, "後端 REST API（Spring Boot）") {
+    Boundary(ctl, "Controller 層：接 HTTP、驗 request、轉交 Service") {
+        Component(authCtl, "AuthController", "@RestController /api/auth", "POST login、GET me")
+        Component(agentCtl, "AgentController", "@RestController /api/agents", "GET 客服清單、\nPATCH me/status、PATCH me/call")
+        Component(ticketCtl, "TicketController", "@RestController /api/tickets", "GET 列表／詳情、POST 建立、\nPATCH changeStatus／assign、POST comments")
+        Component(followCtl, "FollowUpController", "@RestController /api", "GET calendar、\nPOST／PATCH／DELETE tickets/{ticketNo}/followUps")
+        Component(exHandler, "GlobalExceptionHandler", "@RestControllerAdvice", "把 ApiException 與驗證錯誤\n轉成統一的 ErrorResponse")
+    }
+
+    Boundary(svc, "Service 層：business logic 與 transaction 邊界") {
+        Component(agentSvc, "AgentService", "@Service", "登入驗密、目前登入者、\n工作狀態與通話中狀態切換")
+        Component(ticketSvc, "TicketService", "@Service", "工單列表（動態條件＋分頁）、\n建立工單並發 ticketNo")
+        Component(detailSvc, "TicketDetailService", "@Service", "工單詳情、狀態機轉換、\n轉派、新增處理記錄")
+        Component(calSvc, "CalendarService", "@Service", "某月回電安排查詢，\n回電的新增／改期／取消")
+    }
+
+    Boundary(shared, "共用元件") {
+        Component(curAgent, "CurrentAgentProvider", "@Component (security)", "回答目前登入的客服是誰；\n開發階段寫死 CSC00001，\n之後接 JWT 只改這裡")
+        Component(pwdEnc, "PasswordEncoder", "@Bean BCrypt (PasswordConfig)", "密碼雜湊與比對")
+    }
+
+    Boundary(repo, "Repository 層：Spring Data JPA（Entity：Agents / Tickets / TicketComments / FollowUps）") {
+        Component(agentsRepo, "AgentsRepository", "JpaRepository<Agents>", "客服帳號")
+        Component(ticketsRepo, "TicketsRepository", "JpaRepository<Tickets>", "工單，含多條件搜尋 JPQL")
+        Component(commentsRepo, "TicketCommentsRepository", "JpaRepository<TicketComments>", "處理記錄 timeline")
+        Component(followRepo, "FollowUpsRepository", "JpaRepository<FollowUps>", "回電安排")
+    }
+
+    Component(flyway, "Flyway", "spring-boot-flyway", "啟動時執行 V1〜V5 migration，\n建立與演進資料表")
+}
+
+ContainerDb(db, "SQL Server 2022", "Docker cs-db", "agents、tickets、\nticket_comments、follow_ups")
+
+Rel(dev, authCtl, "HTTP / JSON")
+Rel(spa, ticketCtl, "（規劃中）HTTP / JSON")
+
+Rel(authCtl, agentSvc, "呼叫")
+Rel(agentCtl, agentSvc, "呼叫")
+Rel(ticketCtl, ticketSvc, "列表、建立")
+Rel(ticketCtl, detailSvc, "詳情、改狀態、轉派、留言")
+Rel(followCtl, calSvc, "呼叫")
+
+Rel(agentSvc, agentsRepo, "查帳號、更新狀態")
+Rel(agentSvc, pwdEnc, "matches()")
+Rel(agentSvc, curAgent, "currentAgentId()")
+Rel(ticketSvc, ticketsRepo, "search、save")
+Rel(ticketSvc, agentsRepo, "查負責客服")
+Rel(ticketSvc, curAgent, "currentAgentId()")
+Rel_Neighbor(ticketSvc, detailSvc, "建單後寫系統記錄")
+Rel(detailSvc, ticketsRepo, "查、更新工單")
+Rel(detailSvc, commentsRepo, "查、新增記錄")
+Rel(detailSvc, agentsRepo, "查轉派對象")
+Rel(detailSvc, curAgent, "currentAgentId()")
+Rel(calSvc, ticketsRepo, "查工單")
+Rel(calSvc, followRepo, "查、新增、更新、刪除")
+Rel(calSvc, curAgent, "currentAgentId()")
+
+Rel(agentsRepo, db, "JDBC")
+Rel(ticketsRepo, db, "JDBC")
+Rel(commentsRepo, db, "JDBC")
+Rel(followRepo, db, "JDBC")
+Rel(flyway, db, "執行 migration SQL")
+
+SHOW_LEGEND()
+@enduml

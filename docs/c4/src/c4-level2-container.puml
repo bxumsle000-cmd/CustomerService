@@ -1,0 +1,27 @@
+@startuml c4-level2-container
+!include <C4/C4_Container>
+!pragma layout smetana
+skinparam defaultFontName "Microsoft JhengHei"
+scale 1.5
+skinparam wrapWidth 320
+
+title 電話客服工單系統 — 容器圖（Level 2：Container）
+
+Person(agent, "客服人員", "透過瀏覽器操作工作台")
+Person(dev, "開發者", "用 Swagger UI 測 API，\n用 SSMS 看資料庫")
+
+System_Boundary(cs, "電話客服工單系統") {
+    Container(spa, "客服工作台 SPA", "HTML / CSS / JavaScript", "單一 index.html，由後端以靜態檔提供。\n含登入、通話工作台、工單列表／詳情、行事曆。\n目前仍使用瀏覽器內的模擬資料，尚未串接 API")
+    Container(api, "後端 REST API", "Java 21 / Spring Boot 3 / Spring Data JPA", "提供 /api/auth、/api/agents、/api/tickets、/api/calendar。\n啟動時由 Flyway 執行 db/migration；\n附 springdoc Swagger UI；密碼以 BCrypt 驗證")
+    ContainerDb(db, "SQL Server 2022", "Docker 容器 cs-db，對外埠 14334", "資料庫 customer_service，四張表：\nagents、tickets、ticket_comments、follow_ups。\n結構一律由 Flyway 版本控管")
+}
+
+Rel(agent, spa, "開啟 http://localhost:8080", "瀏覽器 HTTP")
+Rel(dev, api, "呼叫 /swagger-ui.html 測試端點", "HTTP / JSON")
+Rel(api, spa, "提供靜態檔 index.html", "HTTP")
+Rel_Neighbor(spa, api, "（規劃中）改為呼叫 REST API 讀寫資料，\n目前尚未實作", "HTTP / JSON")
+Rel(api, db, "讀寫資料；啟動時跑 Flyway migration", "JDBC (mssql-jdbc) / HikariCP")
+Rel(dev, db, "查看資料", "SSMS，localhost,14334")
+
+SHOW_LEGEND()
+@enduml

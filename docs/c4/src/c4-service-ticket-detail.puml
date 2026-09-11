@@ -1,0 +1,58 @@
+@startuml c4-service-ticket-detail
+!include <C4/C4_Component>
+!pragma layout smetana
+skinparam defaultFontName "Microsoft JhengHei"
+scale 1.5
+skinparam wrapWidth 320
+
+title TicketDetailService — 元件圖（工單詳情、改狀態、轉派、處理記錄）
+
+Boundary(callers, "呼叫者") {
+    Component(ticketCtl, "TicketController", "/api/tickets/{ticketNo}", "GET /\nPATCH /changeStatus\nPATCH /assign?assigneeId=\nPOST /comments")
+    Component(ticketSvc, "TicketService", "@Service", "建單時呼叫 write* 方法")
+}
+
+Boundary(reqDto, "Request（進）") {
+    Component(statusReq, "ChangeStatusRequest", "record", "status\n（Controller 只把 status 字串傳給 Service）")
+    Component(commentReq, "AddCommentRequest", "record", "content\n（Controller 只把 content 字串傳給 Service）")
+    Component(assignParam, "assigneeId（無 DTO）", "@RequestParam", "轉派對象的客服代號")
+}
+
+Component(svc, "TicketDetailService", "@Service", "detail(ticketNo) → TicketDetailResponse\nchangeStatus(ticketNo, status) → TicketDetailResponse\nassign(ticketNo, assigneeId) → TicketDetailResponse\nsubmitContent(ticketNo, content) → TicketDetailResponse\n\nwriteComment(ticket, agentId, content)\nwriteAssignComment(ticket, me, target)\nwriteStatusSetComment(ticket, status)\n\n私有：findTicket\n常數：STATUS_LABEL（中文標籤）、TRANSITIONS（狀態機）")
+
+Boundary(resDto, "Response DTO（出）") {
+    Component(detailRes, "TicketDetailResponse", "record", "ticketNo、title、description、status、category、\nchannel、customerName、contactPhone、assigneeId、\ncreatedAt、updatedAt、comments\n\nTicketDetailResponse.from(Tickets, comments)")
+    Component(commentRes, "TicketCommentResponse", "record", "commentId、agentId（系統記錄為 null）、\ncontent、createdAt\n\nTicketCommentResponse.from(TicketComments)")
+}
+
+Boundary(deps, "依賴") {
+    Component(ticketsRepo, "TicketsRepository", "JpaRepository<Tickets, Integer>", "findByTicketNo")
+    Component(commentsRepo, "TicketCommentsRepository", "JpaRepository<TicketComments, Integer>", "findByTicketIdOrderByCreatedAtAscCommentIdAsc\nsave(TicketComments)")
+    Component(agentsRepo, "AgentsRepository", "JpaRepository<Agents, String>", "existsById（驗轉派對象）")
+    Component(ticketEntity, "Tickets", "@Entity tickets", "setStatus / setAssigneeId")
+    Component(commentEntity, "TicketComments", "@Entity ticket_comments", "ticketId、agentId、content、createdAt")
+    Component(cur, "CurrentAgentProvider", "security", "currentAgentId()")
+}
+
+Component(ex, "ApiException", "可能丟出的錯誤", "404 TICKET_NOT_FOUND：單號不存在\n400 INVALID_STATUS_TRANSITION：狀態機不允許的轉換\n404 AGENT_NOT_FOUND：轉派對象不存在")
+
+Rel(ticketCtl, svc, "detail / changeStatus / assign / submitContent")
+Rel(ticketSvc, svc, "writeComment / writeStatusSetComment / writeAssignComment")
+Rel(statusReq, svc, "changeStatus")
+Rel(commentReq, svc, "submitContent")
+Rel(assignParam, svc, "assign")
+
+Rel(svc, detailRes, "四個對外方法都回傳完整詳情")
+Rel_Neighbor(detailRes, commentRes, "comments 包含多筆")
+
+Rel(svc, ticketsRepo, "findByTicketNo")
+Rel(ticketsRepo, ticketEntity, "回傳")
+Rel(svc, ticketEntity, "改狀態、改負責人")
+Rel(svc, commentsRepo, "查 timeline、寫記錄")
+Rel(commentsRepo, commentEntity, "回傳／儲存")
+Rel(svc, agentsRepo, "existsById")
+Rel(svc, cur, "留言者、轉派者 = 目前登入者")
+Rel(svc, ex, "throw")
+
+SHOW_LEGEND()
+@enduml
