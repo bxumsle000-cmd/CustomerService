@@ -3,6 +3,7 @@ package com.poz.CustomerService.service;
 import com.poz.CustomerService.dto.ticket.CreateTicketRequest;
 import com.poz.CustomerService.dto.ticket.TicketListItemResponse;
 import com.poz.CustomerService.dto.ticket.TicketPageResponse;
+import com.poz.CustomerService.dto.ticket.TicketSearchRequest;
 import com.poz.CustomerService.entity.Tickets;
 import com.poz.CustomerService.exception.ApiException;
 import com.poz.CustomerService.repository.AgentsRepository;
@@ -15,7 +16,6 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
 import java.util.Set;
 
 /**
@@ -72,38 +72,26 @@ public class TicketService {
     // ------------------------------------------------------------------
 
     /**
-     * 工單列表，七個篩選條件全部選填，沒帶的就不篩。
+     * 工單列表，所有篩選條件全部選填，沒帶的就不篩。
+     * <p>
+     * 條件收在 {@link TicketSearchRequest}，欄位是 null 就代表「這一項不篩」。
+     * 前端常會把沒填的欄位送成空字串（{@code ?contactPhone=}），這裡會先把
+     * <b>空字串／全空白一律轉成 null</b>、有值的去掉前後空白，再交給 Repository；
+     * Repository 那邊只認 null，空字串會被當成「找值剛好是空字串的資料」而一筆都撈不到。
      * <p>
      * 除了 {@code createdFrom} / {@code createdTo} 之外都是<b>精確比對</b>：篩選欄要打完整的值。
      * 姓名要連稱謂一起打（資料庫存的是「王小明先生」這種完整字串），
-     * 電話和單號也不能只打一半。
+     * 電話和單號也不能只打一半。起點晚於終點<b>不會</b>丟 400，就是回 0 筆。
      *
-     * @param ticketNo     工單編號，完整的 TK-XXXXXX；null 表示不篩
-     * @param customerName 客戶姓名；null 表示不篩
-     * @param contactPhone 聯絡電話；null 表示不篩
-     * @param assigneeId   負責客服代號；null 表示不篩
-     * @param status       處理狀態，IN_PROGRESS / PENDING / RESOLVED；null 表示不篩
-     * @param createdFrom  區間起點，建立時間 &gt;= 這個時間點；null 表示不限起點。
-     *                     「近 7 天」那種相對區間由前端自己換算成絕對時間再送過來
-     * @param createdTo    區間終點，建立時間 &lt;= 這個時間點（<b>含</b>邊界）；null 表示不限終點。
-     *                     想查整個 9/30 就送 {@code 2026-09-30T23:59:59}。
-     *                     起點晚於終點<b>不會</b>丟 400，就是回 0 筆
-     * @param page         頁碼，從 1 開始
-     * @param size         每頁筆數，1 到 {@value #MAX_PAGE_SIZE}
+     * @param filter 篩選條件，不可為 null；欄位全 null 就是撈全部
+     * @param page   頁碼，從 1 開始
+     * @param size   每頁筆數，1 到 {@value #MAX_PAGE_SIZE}
      * @return 這一頁的工單與分頁資訊；查無資料時 content 是空 list
      * @throws ApiException 400 / {@code VALIDATION_ERROR}——page、size 超出範圍，
      *                      或 status 不是那三個值之一
      */
     @Transactional(readOnly = true)
-    public TicketPageResponse search(String ticketNo,
-                                     String customerName,
-                                     String contactPhone,
-                                     String assigneeId,
-                                     String status,
-                                     LocalDateTime createdFrom,
-                                     LocalDateTime createdTo,
-                                     int page,
-                                     int size) {
+    public TicketPageResponse search(TicketSearchRequest filter, int page, int size) {
         if (page < 1) {
             throw ApiException.badRequest("VALIDATION_ERROR", "頁碼不可小於 1");
         }
@@ -112,6 +100,7 @@ public class TicketService {
                     "每頁筆數必須介於 1 到 " + MAX_PAGE_SIZE);
         }
 
+        String status = blankToNull(filter.status());
         // 不擋的話，打錯的狀態會安靜地回 0 筆，看不出來是自己拼錯還是真的沒資料
         if (status != null && !ALLOWED_STATUS.contains(status)) {
             throw ApiException.badRequest("VALIDATION_ERROR",
@@ -120,13 +109,13 @@ public class TicketService {
 
         // PageRequest 的頁碼從 0 開始，所以這裡減 1
         Page<Tickets> result = ticketsRepository.search(
-                ticketNo,
-                customerName,
-                contactPhone,
-                assigneeId,
+                blankToNull(filter.ticketNo()),
+                blankToNull(filter.customerName()),
+                blankToNull(filter.contactPhone()),
+                blankToNull(filter.assigneeId()),
                 status,
-                createdFrom,
-                createdTo,
+                filter.createdFrom(),
+                filter.createdTo(),
                 PageRequest.of(page - 1, size, DEFAULT_SORT));
 
         return TicketPageResponse.from(result);
@@ -201,5 +190,18 @@ public class TicketService {
             throw ApiException.notFound("AGENT_NOT_FOUND", "找不到客服：" + assigneeId);
         }
         return assigneeId;
+    }
+
+    /**
+     * 篩選字串的前處理：null、空字串、全空白都回 null（＝不篩），其餘去掉前後空白。
+     *
+     * @param value query 參數原始值，可為 null
+     * @return 整理過的值，或 null
+     */
+    private static String blankToNull(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
     }
 }

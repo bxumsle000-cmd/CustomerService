@@ -6,14 +6,13 @@ import com.poz.CustomerService.dto.ticket.CreateTicketRequest;
 import com.poz.CustomerService.dto.ticket.TicketDetailResponse;
 import com.poz.CustomerService.dto.ticket.TicketListItemResponse;
 import com.poz.CustomerService.dto.ticket.TicketPageResponse;
+import com.poz.CustomerService.dto.ticket.TicketSearchRequest;
 import com.poz.CustomerService.service.TicketDetailService;
 import com.poz.CustomerService.service.TicketService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import org.springframework.format.annotation.DateTimeFormat;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.web.bind.annotation.*;
-
-import java.time.LocalDateTime;
 
 /**
  * 工單與處理記錄的端點：列表、建立、詳情、狀態變更、轉派、新增處理記錄。
@@ -35,40 +34,27 @@ public class TicketController {
     private final TicketDetailService ticketDetailService;
 
     /**
-     * 工單列表，GET /api/tickets。七個篩選條件全部選填，沒帶就不篩。
+     * 工單列表，GET /api/tickets。所有篩選條件全部選填，沒帶就不篩。
+     * <p>
+     * 篩選條件統一收在 {@link TicketSearchRequest}：query 參數名稱對上欄位名稱就會
+     * 自動填進去（{@code ?status=PENDING&contactPhone=0912000111}），沒帶的欄位是 null。
+     * 不管前端要用哪幾個條件組合查詢，都是打這一支。
      * <p>
      * 除了 createdFrom / createdTo 之外都是精確比對，篩選欄要打完整的值。
      *
-     * @param ticketNo     工單編號，完整的 TK-XXXXXX；沒帶就不篩
-     * @param customerName 客戶姓名，要連稱謂一起打；沒帶就不篩
-     * @param contactPhone 聯絡電話，完整號碼；沒帶就不篩
-     * @param assigneeId   負責客服代號；沒帶就不篩
-     * @param status       處理狀態，IN_PROGRESS / PENDING / RESOLVED；沒帶就不篩
-     * @param createdFrom  建立時間區間的起點（含），格式 2026-09-01T00:00:00；
-     *                     沒帶就不限起點。「近 7 天」由前端自己換算成絕對時間
-     * @param createdTo    建立時間區間的終點（含），格式 2026-09-30T23:59:59；
-     *                     沒帶就不限終點。要查整天記得打到 23:59:59，只打日期
-     *                     會被當成當天 00:00:00，那天的資料一筆都撈不到
-     * @param page         頁碼，從 1 開始，沒帶就是第 1 頁
-     * @param size         每頁筆數，上限 50，沒帶就是 10 筆
+     * @param filter 篩選條件；{@code @ModelAttribute} 表示「從 query 參數組物件」而不是讀 body，
+     *               {@code @ParameterObject} 則是讓 Swagger UI 把欄位攤開成一個個參數欄
+     * @param page   頁碼，從 1 開始，沒帶就是第 1 頁
+     * @param size   每頁筆數，上限 50，沒帶就是 10 筆
      * @return 200，這一頁的工單 + 分頁資訊；
      *         page / size 超出範圍或 status 不合法回 400 / {@code VALIDATION_ERROR}
      */
     @GetMapping
     public TicketPageResponse search(
-            @RequestParam(required = false) String ticketNo,
-            @RequestParam(required = false) String customerName,
-            @RequestParam(required = false) String contactPhone,
-            @RequestParam(required = false) String assigneeId,
-            @RequestParam(required = false) String status,
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime createdFrom,
-            @RequestParam(required = false)
-            @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) LocalDateTime createdTo,
+            @ParameterObject @ModelAttribute TicketSearchRequest filter,
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "10") int size) {
-        return ticketService.search(ticketNo, customerName, contactPhone,
-                assigneeId, status, createdFrom, createdTo, page, size);
+        return ticketService.search(filter, page, size);
     }
 
     /**

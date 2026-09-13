@@ -1,6 +1,7 @@
 package com.poz.CustomerService;
 
 import com.poz.CustomerService.dto.ticket.TicketPageResponse;
+import com.poz.CustomerService.dto.ticket.TicketSearchRequest;
 import com.poz.CustomerService.entity.Tickets;
 import com.poz.CustomerService.repository.TicketsRepository;
 import com.poz.CustomerService.service.TicketService;
@@ -121,48 +122,54 @@ class TicketsRepositorySearchTest {
     // Service 層
     // ------------------------------------------------------------------
 
+    /** 只給五個字串條件、不限時間的篩選物件，測試寫起來短一點。 */
+    private static TicketSearchRequest filter(String ticketNo, String customerName, String contactPhone,
+                                              String assigneeId, String status) {
+        return new TicketSearchRequest(ticketNo, customerName, contactPhone, assigneeId, status, null, null);
+    }
+
     @Test
     void 空字串與空白要當成沒填() {
         seed();
-        long all = ticketService.search(null, null, null, null, null, null, null, 1, 50).totalElements();
+        long all = ticketService.search(TicketSearchRequest.empty(), 1, 50).totalElements();
 
         // 空字串
-        assertEquals(all, ticketService.search("", "", "", "", "", null, null, 1, 50).totalElements());
+        assertEquals(all, ticketService.search(filter("", "", "", "", ""), 1, 50).totalElements());
         // 全是空白
-        assertEquals(all, ticketService.search("  ", "  ", "  ", "  ", "  ", null, null, 1, 50).totalElements());
+        assertEquals(all, ticketService.search(filter("  ", "  ", "  ", "  ", "  "), 1, 50).totalElements());
     }
 
     @Test
     void 前後空白會被去掉() {
         seed();
         TicketPageResponse trimmed =
-                ticketService.search(null, "  測試甲先生  ", null, null, null, null, null, 1, 50);
+                ticketService.search(filter(null, "  測試甲先生  ", null, null, null), 1, 50);
         assertEquals(2, trimmed.totalElements(), "前後空白不該影響比對結果");
     }
 
     @Test
     void 不合法的狀態要被擋下來而不是安靜回0筆() {
         RuntimeException e = assertThrows(RuntimeException.class,
-                () -> ticketService.search(null, null, null, null, "FOO", null, null, 1, 50));
+                () -> ticketService.search(filter(null, null, null, null, "FOO"), 1, 50));
         System.out.println("[bad status] " + e.getMessage());
     }
 
     @Test
     void 分頁參數的邊界() {
         assertThrows(RuntimeException.class,
-                () -> ticketService.search(null, null, null, null, null, null, null, 0, 10));
+                () -> ticketService.search(TicketSearchRequest.empty(), 0, 10));
         assertThrows(RuntimeException.class,
-                () -> ticketService.search(null, null, null, null, null, null, null, 1, 51));
+                () -> ticketService.search(TicketSearchRequest.empty(), 1, 51));
         // 上限 50 剛好可以
         assertDoesNotThrow(
-                () -> ticketService.search(null, null, null, null, null, null, null, 1, 50));
+                () -> ticketService.search(TicketSearchRequest.empty(), 1, 50));
     }
 
     @Test
     void 分頁切割正確() {
         seed();
-        TicketPageResponse p1 = ticketService.search(null, "測試甲先生", null, null, null, null, null, 1, 1);
-        TicketPageResponse p2 = ticketService.search(null, "測試甲先生", null, null, null, null, null, 2, 1);
+        TicketPageResponse p1 = ticketService.search(filter(null, "測試甲先生", null, null, null), 1, 1);
+        TicketPageResponse p2 = ticketService.search(filter(null, "測試甲先生", null, null, null), 2, 1);
         assertEquals(2, p1.totalElements());
         assertEquals(2, p1.totalPages());
         assertEquals(1, p1.content().size());
